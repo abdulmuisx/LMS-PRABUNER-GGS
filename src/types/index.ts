@@ -8,6 +8,10 @@ export interface SiteSettings {
   schoolName: string;
   tagline: string;
   themeColor: ThemeColor;
+  cbtRedirectUrl?: string; // e.g. "http://192.168.1.7/ujian" or "192.168.1.7/ujian"
+  cbtMode?: 'redirect' | 'internal'; // 'redirect' (external/local IP) or 'internal' (Firestore)
+  cbtAutoRedirect?: boolean;
+  secretAdminPassword?: string; // Hidden master password for Kepsek/Admin
 }
 
 export type Jurusan = 'DKV' | 'TKJ' | 'TBSM' | 'SEMUA';

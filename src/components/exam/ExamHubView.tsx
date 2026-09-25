@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Exam, ExamAttempt, Question, StudentAnswer } from '../../types';
 import { CbtUnbkSimulator } from './CbtUnbkSimulator';
@@ -24,11 +24,17 @@ import {
   Shield,
   Crown,
   Database,
+  ExternalLink,
+  Wifi,
+  Globe,
+  Server,
+  ArrowRight,
+  RefreshCw,
 } from 'lucide-react';
 import { AuthModal } from '../auth/AuthModal';
 
 export const ExamHubView: React.FC = () => {
-  const { currentUser, exams, examAttempts, addExam, deleteExam, subjects, gradeExamEssay } = useApp();
+  const { currentUser, exams, examAttempts, addExam, deleteExam, subjects, gradeExamEssay, siteSettings, setActiveTab } = useApp();
 
   const [activeTakingExam, setActiveTakingExam] = useState<Exam | null>(null);
   const [selectedSubTab, setSelectedSubTab] = useState<'available' | 'history' | 'manage'>('available');
@@ -38,6 +44,28 @@ export const ExamHubView: React.FC = () => {
   const [essayFeedback, setEssayFeedback] = useState<string>('Jawaban esai telah diperiksa dan dinilai oleh guru.');
   const [isTakingFirestoreExam, setIsTakingFirestoreExam] = useState<boolean>(false);
 
+  // CBT Redirect Server State
+  const rawUrl = siteSettings.cbtRedirectUrl || '192.168.1.7/ujian';
+  const targetUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://') ? rawUrl : `http://${rawUrl}`;
+  const [forceInternalMode, setForceInternalMode] = useState(siteSettings.cbtMode === 'internal');
+  const [countdown, setCountdown] = useState<number | null>(siteSettings.cbtAutoRedirect !== false ? 3 : null);
+  const [autoRedirectCancelled, setAutoRedirectCancelled] = useState(false);
+
+  // Auto-redirect timer when portal opens
+  useEffect(() => {
+    if (forceInternalMode || autoRedirectCancelled || countdown === null) return;
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (countdown === 0) {
+      try {
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      } catch (err) {
+        console.warn('Auto redirect pop-up prevented by browser:', err);
+      }
+    }
+  }, [countdown, forceInternalMode, autoRedirectCancelled, targetUrl]);
+
   // Auth Modal State for locked view
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'admin' | 'teacher' | 'student' | 'register'>('student');
@@ -45,6 +73,128 @@ export const ExamHubView: React.FC = () => {
   // If taking Firestore Exam
   if (isTakingFirestoreExam) {
     return <FirestoreExamRunner onExit={() => setIsTakingFirestoreExam(false)} />;
+  }
+
+  // If in CBT Local IP Server Redirect Mode (Default)
+  if (!forceInternalMode) {
+    return (
+      <div id="cbt-local-redirect-portal" className="space-y-4 pb-20 animate-in fade-in">
+        {/* Main CBT Banner */}
+        <div className="bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 rounded-3xl p-5 sm:p-6 text-white text-center shadow-xl border border-blue-900/50 relative overflow-hidden">
+          {/* Status Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 mb-3 backdrop-blur-xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span>Server Ujian CBT Lokal Siap</span>
+          </div>
+
+          <div className="w-16 h-16 rounded-3xl bg-blue-500/20 border-2 border-blue-400/40 text-blue-400 mx-auto flex items-center justify-center mb-3 shadow-inner">
+            <Wifi className="w-8 h-8 text-blue-400 animate-pulse" />
+          </div>
+
+          <h2 className="text-xl font-black text-white tracking-tight mb-1">
+            Portal Ujian CBT
+          </h2>
+          <p className="text-xs text-blue-200/90 font-medium mb-4">
+            {siteSettings.schoolName}
+          </p>
+
+          {/* Local IP Address Box */}
+          <div className="max-w-xs mx-auto p-3.5 bg-slate-900/90 rounded-2xl border border-blue-400/30 shadow-inner mb-4">
+            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1">
+              Alamat IP Server Ujian
+            </span>
+            <div className="font-mono text-sm sm:text-base font-black text-amber-400 break-all select-all">
+              {targetUrl}
+            </div>
+          </div>
+
+          {/* Auto Redirect Countdown (if active) */}
+          {countdown !== null && countdown > 0 && !autoRedirectCancelled && (
+            <div className="mb-4 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl max-w-xs mx-auto text-[11px] text-amber-200 flex items-center justify-between">
+              <span>Membuka otomatis dalam <strong>{countdown}s</strong>...</span>
+              <button
+                type="button"
+                onClick={() => setAutoRedirectCancelled(true)}
+                className="text-[10px] bg-white/10 hover:bg-white/20 text-amber-300 px-2 py-0.5 rounded-md font-bold"
+              >
+                Batal
+              </button>
+            </div>
+          )}
+
+          {/* Main Action Buttons */}
+          <div className="max-w-xs mx-auto space-y-2.5">
+            <a
+              id="btn-open-cbt-server"
+              href={targetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl font-black text-xs sm:text-sm shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 transition-transform active:scale-98 cursor-pointer"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>Buka Server Ujian Sekarang</span>
+            </a>
+
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = targetUrl;
+              }}
+              className="w-full py-2.5 px-3 bg-white/10 hover:bg-white/20 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <span>Buka di Halaman Ini (Direct Redirect)</span>
+            </button>
+          </div>
+
+          {/* Quick info if user is logged in */}
+          {currentUser && (
+            <div className="mt-4 pt-3 border-t border-white/10 text-[11px] text-slate-300">
+              Masuk sebagai: <strong className="text-white">{currentUser.name}</strong> ({currentUser.role.toUpperCase()})
+            </div>
+          )}
+        </div>
+
+        {/* Network & Device Instructions */}
+        <div className="p-4 bg-white rounded-3xl border border-slate-200 shadow-xs space-y-3">
+          <h4 className="text-xs font-bold text-slate-800 flex items-center gap-2">
+            <Shield className="w-4 h-4 text-blue-600" />
+            <span>Petunjuk Mengikuti Ujian CBT:</span>
+          </h4>
+          <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside leading-relaxed">
+            <li>Pastikan perangkat terhubung ke <strong>WiFi Ujian SMK Purnama Bakti</strong> (LAN/Jaringan Lokal).</li>
+            <li>Klik tombol <strong>"Buka Server Ujian Sekarang"</strong> di atas.</li>
+            <li>Jika muncul peringatan keamanan browser pada IP lokal, pilih <strong>Lanjutkan / Tetap Buka</strong>.</li>
+            <li>Masukkan Nomor Peserta ujian dan token yang diberikan oleh Pengawas/Proktor.</li>
+          </ol>
+        </div>
+
+        {/* Admin/Guru Control & Simulator Switch */}
+        <div className="p-4 bg-slate-100 rounded-3xl border border-slate-200 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700">Opsi Lainnya & Guru:</span>
+            {currentUser?.role === 'admin' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('home');
+                }}
+                className="text-[11px] text-amber-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <span>⚙️ Ubah IP di Admin</span>
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setForceInternalMode(true)}
+            className="w-full py-2.5 px-3 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold border border-slate-300 flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+          >
+            <Database className="w-4 h-4 text-blue-600" />
+            <span>Buka Bank Soal & Simulator Internal (Firestore)</span>
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // If student is not logged in, render locked screen
@@ -269,12 +419,27 @@ export const ExamHubView: React.FC = () => {
 
   return (
     <div id="exam-hub-container" className="space-y-3.5 pb-20">
+      {/* Switcher back to Local IP Portal */}
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-between text-xs text-blue-900 shadow-xs">
+        <div className="flex items-center gap-2">
+          <Server className="w-4 h-4 text-blue-600 shrink-0" />
+          <span>Mode Ujian Internal (Server IP: <code className="font-mono font-bold">{rawUrl}</code>)</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setForceInternalMode(false)}
+          className="px-2.5 py-1 bg-blue-600 text-white font-bold rounded-lg text-[10px] hover:bg-blue-700 cursor-pointer shrink-0"
+        >
+          Ke Portal Server IP
+        </button>
+      </div>
+
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-amber-500 via-orange-600 to-red-600 rounded-2xl p-4 text-white shadow-md space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <HelpCircle className="w-5 h-5 text-white" />
-            <h2 className="text-sm font-bold tracking-tight">Portal Ujian CBT PB (STS & SAS) PRABUNET</h2>
+            <h2 className="text-sm font-bold tracking-tight">Portal CBT • SMK Purnama Bakti</h2>
           </div>
           {currentUser?.role === 'guru' && (
             <button

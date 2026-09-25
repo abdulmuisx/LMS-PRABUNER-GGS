@@ -28,9 +28,13 @@ import {
   Camera,
   LogIn,
   ChevronDown,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { AuthModal } from '../auth/AuthModal';
 import { ChangePasswordModal } from '../auth/ChangePasswordModal';
+import { Dock, DockIcon, DockItem, DockLabel } from '../ui/dock';
+import { cn } from '../../lib/utils';
 
 interface MobileShellProps {
   children: React.ReactNode;
@@ -47,6 +51,7 @@ export const MobileShell: React.FC<MobileShellProps> = ({ children }) => {
     logout,
     siteSettings,
     updateUserProfile,
+    loginWithSecretKey,
   } = useApp();
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -80,11 +85,52 @@ export const MobileShell: React.FC<MobileShellProps> = ({ children }) => {
 
   const unreadNotifsCount = notifications.filter((n) => !n.read).length;
 
-  // Handle Logo Click -> Return to Home Dashboard
+  // Secret Backdoor Kepsek State
+  const [isSecretAdminModalOpen, setIsSecretAdminModalOpen] = useState(false);
+  const [secretPassInput, setSecretPassInput] = useState('');
+  const [secretPassError, setSecretPassError] = useState('');
+  const [showSecretPass, setShowSecretPass] = useState(false);
+  const logoClicksRef = useRef(0);
+  const lastLogoClickTimeRef = useRef(0);
+
+  // Handle Logo Click -> Return to Home Dashboard + Secret 5-Clicks Backdoor
   const handleLogoClick = () => {
+    const now = Date.now();
+    if (now - lastLogoClickTimeRef.current < 900) {
+      logoClicksRef.current += 1;
+    } else {
+      logoClicksRef.current = 1;
+    }
+    lastLogoClickTimeRef.current = now;
+
+    // Secret trigger: 5 rapid clicks on logo opens the secret Kepsek portal
+    if (logoClicksRef.current >= 5) {
+      logoClicksRef.current = 0;
+      setIsSecretAdminModalOpen(true);
+      setSecretPassInput('');
+      setSecretPassError('');
+      return;
+    }
+
     setActiveTab('home');
     setSelectedSubject(null);
     setActiveExam(null);
+  };
+
+  const handleSecretLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!secretPassInput.trim()) {
+      setSecretPassError('Masukkan sandi rahasia.');
+      return;
+    }
+    const res = loginWithSecretKey(secretPassInput);
+    if (res.success) {
+      setIsSecretAdminModalOpen(false);
+      setSecretPassInput('');
+      setSecretPassError('');
+    } else {
+      setSecretPassError(res.message || 'Sandi rahasia salah.');
+    }
   };
 
   // Open Edit Profile modal
@@ -158,11 +204,11 @@ export const MobileShell: React.FC<MobileShellProps> = ({ children }) => {
               (e.target as HTMLImageElement).src = '/Logo-07(1).png';
             }}
           />
-          <div>
-            <span className="font-bold text-xs tracking-tight block">
+          <div className="flex flex-col items-start justify-center text-left">
+            <span className="font-extrabold text-xs tracking-wide text-white leading-tight uppercase">
               {siteSettings.siteName}
             </span>
-            <span className="text-slate-400 block text-[10px]">
+            <span className="text-slate-400 text-[10px] font-medium leading-tight">
               {siteSettings.schoolName}
             </span>
           </div>
@@ -289,14 +335,13 @@ export const MobileShell: React.FC<MobileShellProps> = ({ children }) => {
                 }}
               />
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h1 className="text-sm font-extrabold tracking-tight">{siteSettings.siteName}</h1>
-                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400 text-amber-950 font-bold uppercase">
-                  SMK PB
-                </span>
-              </div>
-              <p className="text-[10px] text-blue-100 font-medium">{siteSettings.schoolName}</p>
+            <div className="flex flex-col items-start justify-center text-left min-w-0">
+              <h1 className="text-sm font-black tracking-wide text-white leading-tight uppercase">
+                {siteSettings.siteName}
+              </h1>
+              <p className="text-[10px] text-blue-100 font-semibold tracking-normal leading-tight">
+                {siteSettings.schoolName}
+              </p>
             </div>
           </button>
 
@@ -550,91 +595,96 @@ export const MobileShell: React.FC<MobileShellProps> = ({ children }) => {
           {children}
         </div>
 
-        {/* Floating Bottom Mobile Navigation Island Bar - Always on top & elevated above mobile address bar */}
+        {/* Floating Bottom Apple Style Dock Navigation Bar (Clean & Transparent - No background box) */}
         <div
-          className="fixed sm:absolute bottom-0 left-0 right-0 z-50 pointer-events-none px-2.5 pb-2 sm:pb-3 flex justify-center"
+          className="fixed sm:absolute bottom-0 left-0 right-0 z-50 pointer-events-none px-2 pb-2 sm:pb-3 flex justify-center"
           style={{
-            paddingBottom: 'max(0.5rem, calc(env(safe-area-inset-bottom, 0px) + 0.35rem))',
+            paddingBottom: 'max(0.45rem, calc(env(safe-area-inset-bottom, 0px) + 0.3rem))',
           }}
         >
-          <nav
-            aria-label="Navigasi Utama Melayang"
-            className="pointer-events-auto w-full max-w-[410px] bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-2xl px-1.5 py-1.5 flex items-center justify-around text-[10px] font-bold text-slate-500 shadow-[0_12px_32px_rgba(15,23,42,0.18),0_2px_8px_rgba(15,23,42,0.06)] ring-1 ring-black/5"
-          >
-            <button
-              id="nav-tab-home"
-              onClick={() => setActiveTab('home')}
-              className={`flex flex-col items-center py-1.5 px-2.5 sm:px-3 rounded-xl transition-all duration-200 ${
-                activeTab === 'home'
-                  ? 'text-blue-600 bg-blue-50/90 font-bold scale-105 shadow-xs'
-                  : 'hover:text-slate-800'
-              }`}
+          <div className="pointer-events-auto flex justify-center items-end">
+            <Dock
+              className="gap-2 sm:gap-2.5 pb-1"
+              baseSize={46}
+              magnification={64}
+              distance={95}
             >
-              <Home className="w-4 h-4 mb-0.5" />
-              <span>Beranda</span>
-            </button>
-
-            <button
-              id="nav-tab-schedule"
-              onClick={() => setActiveTab('schedule')}
-              className={`flex flex-col items-center py-1.5 px-2.5 sm:px-3 rounded-xl transition-all duration-200 ${
-                activeTab === 'schedule'
-                  ? 'text-blue-600 bg-blue-50/90 font-bold scale-105 shadow-xs'
-                  : 'hover:text-slate-800'
-              }`}
-            >
-              <Calendar className="w-4 h-4 mb-0.5" />
-              <span>Jadwal</span>
-            </button>
-
-            <button
-              id="nav-tab-subjects"
-              onClick={() => setActiveTab('subjects')}
-              className={`flex flex-col items-center py-1.5 px-2.5 sm:px-3 rounded-xl transition-all duration-200 ${
-                activeTab === 'subjects'
-                  ? 'text-blue-600 bg-blue-50/90 font-bold scale-105 shadow-xs'
-                  : 'hover:text-slate-800'
-              }`}
-            >
-              <BookOpen className="w-4 h-4 mb-0.5" />
-              <span>Mapel</span>
-            </button>
-
-            <button
-              id="nav-tab-cbt"
-              onClick={() => setActiveTab('cbt')}
-              className={`flex flex-col items-center py-1.5 px-2.5 sm:px-3 rounded-xl transition-all duration-200 ${
-                activeTab === 'cbt'
-                  ? 'text-blue-600 bg-blue-50/90 font-bold scale-105 shadow-xs'
-                  : 'hover:text-slate-800'
-              }`}
-            >
-              <HelpCircle className="w-4 h-4 mb-0.5" />
-              <span>CBT PB</span>
-            </button>
-
-            <button
-              id="nav-tab-account"
-              onClick={() => setActiveTab('account')}
-              className={`flex flex-col items-center py-1.5 px-2.5 sm:px-3 rounded-xl transition-all duration-200 ${
-                activeTab === 'account'
-                  ? 'text-blue-600 bg-blue-50/90 font-bold scale-105 shadow-xs'
-                  : 'hover:text-slate-800'
-              }`}
-            >
-              {currentUser?.role === 'admin' ? (
-                <>
-                  <Crown className="w-4 h-4 mb-0.5 text-amber-600" />
-                  <span className="text-amber-700">KepSek</span>
-                </>
-              ) : (
-                <>
-                  <User className="w-4 h-4 mb-0.5" />
-                  <span>Akun</span>
-                </>
-              )}
-            </button>
-          </nav>
+              {[
+                {
+                  id: 'home' as const,
+                  title: 'Beranda',
+                  icon: Home,
+                  activeGradient: 'from-blue-600 to-indigo-600 text-white shadow-blue-500/40',
+                  badge: null,
+                },
+                {
+                  id: 'schedule' as const,
+                  title: 'Jadwal Pelajaran',
+                  icon: Calendar,
+                  activeGradient: 'from-indigo-600 to-violet-600 text-white shadow-indigo-500/40',
+                  badge: null,
+                },
+                {
+                  id: 'subjects' as const,
+                  title: 'Mata Pelajaran',
+                  icon: BookOpen,
+                  activeGradient: 'from-teal-600 to-emerald-600 text-white shadow-teal-500/40',
+                  badge: null,
+                },
+                {
+                  id: 'cbt' as const,
+                  title: 'Portal CBT',
+                  icon: HelpCircle,
+                  activeGradient: 'from-amber-500 to-orange-600 text-white shadow-orange-500/40',
+                  badge: 'CBT',
+                },
+                {
+                  id: 'account' as const,
+                  title: currentUser?.role === 'admin' ? 'Ruang KepSek' : (currentUser ? 'Profil Akun' : 'Masuk Akun'),
+                  icon: currentUser?.role === 'admin' ? Crown : User,
+                  activeGradient: currentUser?.role === 'admin' ? 'from-amber-500 via-amber-600 to-yellow-600 text-slate-950 font-black shadow-amber-500/40' : 'from-blue-600 to-indigo-600 text-white shadow-blue-500/40',
+                  badge: null,
+                },
+              ].map((item) => {
+                const isActive = activeTab === item.id;
+                const IconComponent = item.icon;
+                return (
+                  <DockItem
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setSelectedSubject(null);
+                      setActiveExam(null);
+                    }}
+                    className={cn(
+                      'rounded-2xl relative group flex items-center justify-center cursor-pointer transition-shadow duration-150',
+                      isActive
+                        ? `bg-gradient-to-tr ${item.activeGradient} shadow-lg ring-2 ring-white/90 dark:ring-slate-700`
+                        : 'bg-white/90 hover:bg-white text-slate-700 hover:text-slate-950 border border-slate-200/80 shadow-[0_6px_18px_rgba(15,23,42,0.14)] backdrop-blur-md dark:bg-slate-800/90 dark:text-slate-200 dark:border-slate-700'
+                    )}
+                  >
+                    <DockLabel>{item.title}</DockLabel>
+                    <DockIcon className="h-full w-full flex items-center justify-center">
+                      <IconComponent
+                        className={cn(
+                          'w-5 h-5 transition-colors',
+                          isActive ? 'text-white' : 'text-slate-700 dark:text-slate-200'
+                        )}
+                      />
+                    </DockIcon>
+                    {isActive && (
+                      <span className="absolute -bottom-1.5 w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400 shadow-xs" />
+                    )}
+                    {item.badge && (
+                      <span className="absolute -top-1 -right-1 px-1 py-0.2 bg-rose-500 text-white font-extrabold text-[8px] rounded-full animate-pulse shadow-xs">
+                        {item.badge}
+                      </span>
+                    )}
+                  </DockItem>
+                );
+              })}
+            </Dock>
+          </div>
         </div>
 
         {/* Smartphone Bottom Home Gesture Indicator (Desktop Mockup Only) */}
@@ -734,6 +784,93 @@ export const MobileShell: React.FC<MobileShellProps> = ({ children }) => {
                 >
                   Simpan Profil
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Secret Backdoor Kepsek Modal (Unlocked by 5 clicks on PRABUNET logo) */}
+      {isSecretAdminModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border border-amber-500/40 rounded-3xl p-5 shadow-2xl text-white relative space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                  <Crown className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-white tracking-wide uppercase">Pintu Rahasia Kepala Sekolah</h3>
+                  <p className="text-[10px] text-amber-300/80">Ruang Kontrol Utama • SMK Purnama Bakti</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSecretAdminModalOpen(false)}
+                className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSecretLogin} className="space-y-3.5">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-[11px] text-amber-200/90 leading-relaxed flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  Masukkan sandi rahasia Kepala Sekolah untuk membuka akses penuh Ruang Kontrol Utama secara tersembunyi.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Sandi Rahasia Kepala Sekolah:
+                </label>
+                <div className="relative">
+                  <input
+                    type={showSecretPass ? 'text' : 'password'}
+                    value={secretPassInput}
+                    onChange={(e) => setSecretPassInput(e.target.value)}
+                    placeholder="Masukkan sandi rahasia..."
+                    autoFocus
+                    className="w-full text-xs bg-slate-800/80 border border-slate-700 focus:border-amber-500 rounded-xl px-3.5 py-2.5 pr-10 text-white font-mono focus:ring-2 focus:ring-amber-500/40 focus:outline-hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSecretPass(!showSecretPass)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200"
+                  >
+                    {showSecretPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {secretPassError && (
+                  <p className="text-[11px] text-rose-400 font-medium mt-1.5 flex items-center gap-1">
+                    <span>⚠️</span>
+                    <span>{secretPassError}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsSecretAdminModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Buka Akses</span>
+                </button>
+              </div>
+
+              <div className="text-center pt-2 border-t border-slate-800">
+                <span className="text-[10px] text-slate-500">
+                  Tip: Sandi bawaan adalah <strong className="text-amber-400 font-mono">@Purnama165</strong> (bisa diubah di Pengaturan Admin)
+                </span>
               </div>
             </form>
           </div>

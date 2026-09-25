@@ -373,6 +373,7 @@ export const finalizeHasilUjian = async (
  * Seed initial sample questions into Firestore if bank_soal is empty
  */
 export const seedInitialBankSoalIfEmpty = async () => {
+  if (!isFirebaseConfigured) return;
   try {
     const colRef = collection(db, 'bank_soal');
     const snapshot = await getDocs(colRef);
@@ -460,6 +461,6 @@ export const seedInitialBankSoalIfEmpty = async () => {
     }
     console.log('Seeded initial questions to Firestore bank_soal');
   } catch (err) {
-    console.error('Failed to seed initial bank_soal:', err);
+    console.warn('Initial seed bank_soal notice:', err);
   }
 };

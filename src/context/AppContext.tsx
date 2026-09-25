@@ -37,6 +37,10 @@ const DEFAULT_SETTINGS: SiteSettings = {
   schoolName: 'SMK Purnama Bakti',
   tagline: 'SMK Purnama Bakti. International Global Gateway School',
   themeColor: 'blue',
+  cbtRedirectUrl: 'http://192.168.1.7/ujian',
+  cbtMode: 'redirect',
+  cbtAutoRedirect: true,
+  secretAdminPassword: '@Purnama165',
 };
 
 interface AppContextType {
@@ -62,6 +66,7 @@ interface AppContextType {
   setActiveExam: (exam: Exam | null) => void;
   updateSiteSettings: (settings: Partial<SiteSettings>) => void;
   loginAsAdmin: (email?: string, password?: string) => { success: boolean; message: string; user?: User };
+  loginWithSecretKey: (secretPassword: string) => { success: boolean; message: string; user?: User };
   loginAsTeacher: (email: string, password?: string) => { success: boolean; message: string; user?: User };
   loginAsStudent: (email: string, password?: string) => { success: boolean; message: string; user?: User };
   registerStudent: (studentData: Partial<User> & { password?: string }) => { success: boolean; message: string; user?: User };
@@ -109,10 +114,26 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Site settings (Logo, Theme, School info)
+  // Site settings (Logo, Theme, School info, CBT Redirect, Secret Admin Pass)
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
     const saved = localStorage.getItem('prabunet_site_settings');
-    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          siteName: parsed.siteName && (parsed.siteName.includes('SMK PB') || parsed.siteName === 'PRABUNET LMS') ? 'PRABUNET' : (parsed.siteName || 'PRABUNET'),
+          cbtRedirectUrl: parsed.cbtRedirectUrl || 'http://192.168.1.7/ujian',
+          cbtMode: parsed.cbtMode || 'redirect',
+          cbtAutoRedirect: parsed.cbtAutoRedirect !== undefined ? parsed.cbtAutoRedirect : true,
+          secretAdminPassword: parsed.secretAdminPassword || '@Purnama165',
+        };
+      } catch {
+        return DEFAULT_SETTINGS;
+      }
+    }
+    return DEFAULT_SETTINGS;
   });
 
   // Teachers with stored passwords and custom avatars
@@ -322,6 +343,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Dedicated Admin / Kepala Sekolah Login (Nishfa Rahmada, S.Kom., MM, Gr / @Purnama165)
   const loginAsAdmin = (email = ADMIN_CREDENTIALS.email, password = ADMIN_CREDENTIALS.password) => {
     const cleanEmail = email.trim().toLowerCase();
+    const activeSecretPass = (siteSettings.secretAdminPassword || ADMIN_CREDENTIALS.password).trim();
+
+    // Check if secret password matches (allows password-only login from secret portal)
+    if (password === activeSecretPass && (!email || cleanEmail === '' || cleanEmail.includes('admin') || cleanEmail.includes('nishfa') || cleanEmail.includes('kepala'))) {
+      const adminUser: User = {
+        id: 'admin-headmaster',
+        name: ADMIN_CREDENTIALS.name,
+        email: ADMIN_CREDENTIALS.email,
+        role: 'admin',
+        title: ADMIN_CREDENTIALS.title,
+        avatar: ADMIN_CREDENTIALS.avatar,
+        phone: '0812-9876-5432',
+      };
+
+      setCurrentUser(adminUser);
+      addNotification(
+        'Selamat Datang Kepala Sekolah',
+        `Bapak ${ADMIN_CREDENTIALS.name} berhasil masuk ke Ruang Kontrol Utama Kepala Sekolah.`,
+        'info'
+      );
+      return {
+        success: true,
+        message: `Selamat datang Bapak ${ADMIN_CREDENTIALS.name}! Anda memiliki kontrol penuh atas manajemen sistem sekolah.`,
+        user: adminUser,
+      };
+    }
+
     const validEmails = [
       ADMIN_CREDENTIALS.email.toLowerCase(),
       ADMIN_CREDENTIALS.altEmail.toLowerCase(),
@@ -336,10 +384,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       };
     }
 
-    if (password !== ADMIN_CREDENTIALS.password) {
+    if (password !== ADMIN_CREDENTIALS.password && password !== activeSecretPass) {
       return {
         success: false,
-        message: 'Kata sandi Kepala Sekolah salah. Pastikan sandi @Purnama165 dimasukkan dengan benar.',
+        message: 'Kata sandi Kepala Sekolah salah. Pastikan sandi dimasukkan dengan benar.',
       };
     }
 
@@ -363,6 +411,38 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       success: true,
       message: `Selamat datang Bapak ${ADMIN_CREDENTIALS.name}! Anda memiliki kontrol penuh atas manajemen sistem sekolah.`,
       user: adminUser,
+    };
+  };
+
+  // Direct Secret Key Login (Backdoor Kepala Sekolah)
+  const loginWithSecretKey = (secretPassword: string) => {
+    const activeSecretPass = (siteSettings.secretAdminPassword || ADMIN_CREDENTIALS.password).trim();
+    if (secretPassword.trim() === activeSecretPass) {
+      const adminUser: User = {
+        id: 'admin-headmaster',
+        name: ADMIN_CREDENTIALS.name,
+        email: ADMIN_CREDENTIALS.email,
+        role: 'admin',
+        title: ADMIN_CREDENTIALS.title,
+        avatar: ADMIN_CREDENTIALS.avatar,
+        phone: '0812-9876-5432',
+      };
+      setCurrentUser(adminUser);
+      setActiveTab('home');
+      addNotification(
+        'Akses Khusus Kepala Sekolah',
+        `Pintu rahasia dibuka. Selamat datang Bapak ${ADMIN_CREDENTIALS.name}!`,
+        'info'
+      );
+      return {
+        success: true,
+        message: `Kunci rahasia diterima! Selamat datang Bapak ${ADMIN_CREDENTIALS.name}.`,
+        user: adminUser,
+      };
+    }
+    return {
+      success: false,
+      message: 'Sandi rahasia Kepala Sekolah salah. Silakan coba lagi.',
     };
   };
 
@@ -962,6 +1042,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setActiveExam,
         updateSiteSettings,
         loginAsAdmin,
+        loginWithSecretKey,
         loginAsTeacher,
         loginAsStudent,
         registerStudent,

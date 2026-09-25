@@ -200,14 +200,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               alt="Logo SMK Purnama Bakti"
               className="w-10 h-10 object-contain rounded-xl bg-white/20 p-1 backdrop-blur-xs border border-white/30"
             />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h2 className="text-base sm:text-lg font-bold tracking-tight">{siteSettings.siteName}</h2>
-                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400 text-amber-950 font-bold uppercase">
-                  SMK PB
-                </span>
-              </div>
-              <p className="text-xs text-blue-100 font-medium">{siteSettings.schoolName} • Portal Resmi</p>
+            <div className="flex flex-col items-start justify-center text-left">
+              <h2 className="text-base sm:text-lg font-extrabold tracking-wide leading-tight">{siteSettings.siteName}</h2>
+              <p className="text-xs text-blue-100 font-medium leading-tight">{siteSettings.schoolName} • Portal Resmi</p>
             </div>
           </div>
           <button

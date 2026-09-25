@@ -12,42 +12,29 @@ service cloud.firestore {
         request.auth.token.role == 'admin' ||
         request.auth.token.email.matches('.*admin.*') ||
         request.auth.token.email == 'admin@prabunet.sch.id' ||
-        request.auth.token.email == 'aamuisx@gmail.com'
+        request.auth.token.email == 'aamuisx@gmail.com' ||
+        request.auth.token.email == 'abdulmuis01@guru.smk.belajar.id'
       );
     }
 
     // 1. Koleksi pendaftar (PPDB / Registrasi Siswa Baru)
-    // Siswa / Publik dapat mendaftarkan diri (create).
-    // Siswa dapat membaca & mengupdate data pendaftaran miliknya sendiri.
-    // Admin memiliki akses penuh (read, write, delete, verifikasi).
     match /pendaftar/{pendaftarId} {
-      allow create: if true;
-      allow read: if isAdmin() || (isAuthenticated() && (request.auth.uid == pendaftarId || resource.data.uid == request.auth.uid));
-      allow update: if isAdmin() || (isAuthenticated() && (request.auth.uid == pendaftarId || resource.data.uid == request.auth.uid));
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
-    // 2. Koleksi bank_soal (Manajemen Soal CBT)
-    // Admin dapat membuat, mengubah, menghapus soal, dan melihat seluruh field.
-    // Siswa/publik dapat membaca soal yang statusnya aktif ('status == "aktif"' atau 'isActive == true').
+    // 2. Koleksi bank_soal (Manajemen Soal CBT & Seeding)
     match /bank_soal/{soalId} {
-      allow read: if isAdmin() || resource.data.status == 'aktif' || resource.data.isActive == true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
-    // 3. Koleksi hasil_ujian (Hasil Pengerjaan Siswa)
-    // Siswa dapat membuat dan mengupdate progres ujian miliknya sendiri secara bertahap (auto-save).
-    // Admin dapat membaca dan mengevaluasi seluruh hasil ujian.
+    // 3. Koleksi hasil_ujian (Hasil Pengerjaan Siswa & Auto-Save)
     match /hasil_ujian/{hasilId} {
-      allow create: if true;
-      allow read: if isAdmin() || (isAuthenticated() && (resource.data.studentId == request.auth.uid || resource.data.pendaftarId == request.auth.uid)) || (resource.data.studentId == request.auth.uid);
-      allow update: if isAdmin() || (request.resource.data.studentId == resource.data.studentId);
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
-    // Default deny for other paths
+    // Default allow for app collections
     match /{document=**} {
-      allow read, write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }

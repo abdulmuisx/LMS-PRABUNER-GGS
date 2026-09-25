@@ -1,0 +1,6 @@
+{
+  "name": "PRABUNET",
+  "description": "Aplikasi LMS SMK Purnama Bakti. International Global Gateway School",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

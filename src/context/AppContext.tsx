@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import {
   User,
   Subject,
@@ -20,7 +20,13 @@ import { INITIAL_SUBJECTS } from '../data/subjectsData';
 import { INITIAL_SCHEDULES } from '../data/scheduleData';
 import { INITIAL_EXAMS } from '../data/sampleExamsData';
 import { generate30MeetingsForSubject } from '../data/curriculumService';
-import { seedInitialBankSoalIfEmpty } from '../services/firestoreService';
+import {
+  seedInitialBankSoalIfEmpty,
+  subscribeSiteSettings,
+  saveSiteSettingsToFirestore,
+  subscribeAppState,
+  saveAppStateToFirestore,
+} from '../services/firestoreService';
 
 export const ADMIN_CREDENTIALS = {
   name: 'Nishfa Rahmada, S.Kom., MM, Gr',
@@ -241,7 +247,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const setCbtUnlockToken = (token: string) => {
     const cleanToken = token.trim().toUpperCase();
     setCbtUnlockTokenState(cleanToken);
-    localStorage.setItem('prabunet_cbt_token', cleanToken);
+    try {
+      localStorage.setItem('prabunet_cbt_token', cleanToken);
+    } catch (e) {
+      console.warn('LocalStorage error:', e);
+    }
+    saveAppStateToFirestore('cbt_unlock_token', cleanToken);
   };
 
   // Broadcast messages (Admin & Guru to Siswa)
@@ -264,6 +275,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   useEffect(() => {
     localStorage.setItem('prabunet_broadcasts', JSON.stringify(broadcasts));
+    const str = JSON.stringify(broadcasts);
+    if (remoteBroadcastsRef.current && str !== remoteBroadcastsRef.current) {
+      saveAppStateToFirestore('broadcasts', broadcasts);
+    }
   }, [broadcasts]);
 
   const addBroadcast = (broadcast: Omit<BroadcastMessage, 'id' | 'createdAt'>) => {
@@ -272,12 +287,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       id: `bc-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
-    setBroadcasts((prev) => [newBc, ...prev]);
+    setBroadcasts((prev) => {
+      const next = [newBc, ...prev];
+      saveAppStateToFirestore('broadcasts', next);
+      return next;
+    });
     addNotification(`📢 Broadcast: ${broadcast.title}`, broadcast.message, 'info');
   };
 
   const deleteBroadcast = (id: string) => {
-    setBroadcasts((prev) => prev.filter((b) => b.id !== id));
+    setBroadcasts((prev) => {
+      const next = prev.filter((b) => b.id !== id);
+      saveAppStateToFirestore('broadcasts', next);
+      return next;
+    });
   };
 
   // Navigation & View states
@@ -286,17 +309,140 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activeExam, setActiveExam] = useState<Exam | null>(null);
   const [activeExamAttempt, setActiveExamAttempt] = useState<ExamAttempt | null>(null);
 
-  // Sync to localStorage
+  // Cross-device Firestore remote state trackers (prevents infinite ping-pong loops)
+  const remoteSiteSettingsRef = useRef<string>('');
+  const remoteTeachersRef = useRef<string>('');
+  const remoteStudentsRef = useRef<string>('');
+  const remoteSchedulesRef = useRef<string>('');
+  const remoteExamsRef = useRef<string>('');
+  const remoteBroadcastsRef = useRef<string>('');
+
+  // 1. Realtime Firestore synchronization for Site Settings (settings/site)
   useEffect(() => {
-    localStorage.setItem('prabunet_site_settings', JSON.stringify(siteSettings));
+    const unsubscribe = subscribeSiteSettings((incoming) => {
+      if (incoming && typeof incoming === 'object') {
+        const jsonStr = JSON.stringify(incoming);
+        remoteSiteSettingsRef.current = jsonStr;
+        setSiteSettings((prev) => {
+          const merged: SiteSettings = {
+            ...prev,
+            ...incoming,
+            siteName:
+              incoming.siteName && (incoming.siteName.includes('SMK PB') || incoming.siteName === 'PRABUNET LMS')
+                ? 'PRABUNET'
+                : incoming.siteName || prev.siteName || 'PRABUNET',
+            schoolName: incoming.schoolName || prev.schoolName || 'SMK Purnama Bakti',
+            logoUrl: incoming.logoUrl || prev.logoUrl || '/Logo-07(1).png',
+            themeColor: (incoming.themeColor as ThemeColor) || prev.themeColor || 'blue',
+            cbtRedirectUrl: incoming.cbtRedirectUrl || prev.cbtRedirectUrl || 'http://192.168.1.7/ujian',
+            cbtMode: incoming.cbtMode || prev.cbtMode || 'redirect',
+            cbtAutoRedirect: incoming.cbtAutoRedirect !== undefined ? incoming.cbtAutoRedirect : prev.cbtAutoRedirect,
+            secretAdminPassword: incoming.secretAdminPassword || prev.secretAdminPassword || '@Purnama165',
+          };
+          try {
+            localStorage.setItem('prabunet_site_settings', JSON.stringify(merged));
+          } catch (e) {
+            console.warn('LocalStorage error:', e);
+          }
+          return merged;
+        });
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // 2. Realtime Firestore synchronization for Teachers
+  useEffect(() => {
+    const unsub = subscribeAppState('teachers', (data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        remoteTeachersRef.current = JSON.stringify(data);
+        setTeachers(data);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 3. Realtime Firestore synchronization for Students
+  useEffect(() => {
+    const unsub = subscribeAppState('students', (data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        remoteStudentsRef.current = JSON.stringify(data);
+        setStudents(data);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 4. Realtime Firestore synchronization for Schedules
+  useEffect(() => {
+    const unsub = subscribeAppState('schedules', (data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        remoteSchedulesRef.current = JSON.stringify(data);
+        setSchedules(data);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 5. Realtime Firestore synchronization for Exams
+  useEffect(() => {
+    const unsub = subscribeAppState('exams', (data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        remoteExamsRef.current = JSON.stringify(data);
+        setExams(data);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 6. Realtime Firestore synchronization for Broadcast Messages
+  useEffect(() => {
+    const unsub = subscribeAppState('broadcasts', (data) => {
+      if (Array.isArray(data)) {
+        remoteBroadcastsRef.current = JSON.stringify(data);
+        setBroadcasts(data);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 7. Realtime Firestore synchronization for CBT Unlock Token
+  useEffect(() => {
+    const unsub = subscribeAppState('cbt_unlock_token', (token) => {
+      if (typeof token === 'string' && token.trim().length > 0) {
+        setCbtUnlockTokenState(token);
+        localStorage.setItem('prabunet_cbt_token', token);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Local storage cache syncing & Firestore broadcast
+  useEffect(() => {
+    try {
+      localStorage.setItem('prabunet_site_settings', JSON.stringify(siteSettings));
+    } catch (e) {
+      console.warn('LocalStorage write error:', e);
+    }
   }, [siteSettings]);
 
   useEffect(() => {
     localStorage.setItem('prabunet_teachers', JSON.stringify(teachers));
+    const str = JSON.stringify(teachers);
+    if (remoteTeachersRef.current && str !== remoteTeachersRef.current) {
+      saveAppStateToFirestore('teachers', teachers);
+    }
   }, [teachers]);
 
   useEffect(() => {
     localStorage.setItem('prabunet_students', JSON.stringify(students));
+    const str = JSON.stringify(students);
+    if (remoteStudentsRef.current && str !== remoteStudentsRef.current) {
+      saveAppStateToFirestore('students', students);
+    }
   }, [students]);
 
   useEffect(() => {
@@ -313,10 +459,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   useEffect(() => {
     localStorage.setItem('prabunet_schedules', JSON.stringify(schedules));
+    const str = JSON.stringify(schedules);
+    if (remoteSchedulesRef.current && str !== remoteSchedulesRef.current) {
+      saveAppStateToFirestore('schedules', schedules);
+    }
   }, [schedules]);
 
   useEffect(() => {
     localStorage.setItem('prabunet_exams', JSON.stringify(exams));
+    const str = JSON.stringify(exams);
+    if (remoteExamsRef.current && str !== remoteExamsRef.current) {
+      saveAppStateToFirestore('exams', exams);
+    }
   }, [exams]);
 
   useEffect(() => {
@@ -334,10 +488,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   }, []);
 
-  // Update site settings
+  // Update site settings - persists both to React state, localStorage cache, and Firestore cloud
   const updateSiteSettings = (settings: Partial<SiteSettings>) => {
-    setSiteSettings((prev) => ({ ...prev, ...settings }));
-    addNotification('Pengaturan Diperbarui', 'Logo, tema, dan identitas website berhasil disimpan oleh Kepala Sekolah.', 'info');
+    setSiteSettings((prev) => {
+      const updated: SiteSettings = { ...prev, ...settings };
+      // Save locally to cache immediately
+      try {
+        localStorage.setItem('prabunet_site_settings', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage error:', e);
+      }
+      // Save to Firestore so ALL other devices (laptop, mobile, tablet) immediately update
+      saveSiteSettingsToFirestore(updated).catch((err) => {
+        console.warn('Gagal menyimpan siteSettings ke Firestore:', err);
+      });
+      return updated;
+    });
+    addNotification('Pengaturan Diperbarui', 'Logo, tema, dan identitas website berhasil disimpan ke cloud dan disinkronkan ke seluruh perangkat.', 'info');
   };
 
   // Dedicated Admin / Kepala Sekolah Login (Nishfa Rahmada, S.Kom., MM, Gr / @Purnama165)

@@ -32,6 +32,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 4. Koleksi settings (Site Settings, Logo, Info Sekolah, CBT, dll)
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+
+    // 5. Koleksi app_state (Sinkronisasi Guru, Siswa, Jadwal, Ujian Lintas Perangkat)
+    match /app_state/{stateId} {
+      allow read, write: if true;
+    }
+
     // Default allow for app collections
     match /{document=**} {
       allow read, write: if true;

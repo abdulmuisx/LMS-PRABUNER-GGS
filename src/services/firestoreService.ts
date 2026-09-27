@@ -3,6 +3,7 @@ import {
   doc,
   addDoc,
   setDoc,
+  getDoc,
   updateDoc,
   deleteDoc,
   onSnapshot,
@@ -13,6 +14,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
+import { SiteSettings } from '../types';
 
 export interface PilihanJawaban {
   key: string; // 'A', 'B', 'C', 'D', 'E'
@@ -57,6 +59,148 @@ export interface HasilUjianDoc {
   waktuSelesai?: string;
   updatedAt?: any;
 }
+
+// -------------------------------------------------------------
+// SITE SETTINGS & APP STATE - Realtime Sync & Cross-Device Persistence
+// -------------------------------------------------------------
+
+/**
+ * Realtime listener for site settings from Firestore (settings/site)
+ * Automatically syncs logo, school name, theme, and CBT configuration across all devices
+ */
+export const subscribeSiteSettings = (
+  onData: (settings: Partial<SiteSettings>) => void,
+  onError?: (error: Error) => void
+): (() => void) => {
+  if (!isFirebaseConfigured) {
+    if (onError) onError(new Error('Firebase belum terkonfigurasi.'));
+    return () => {};
+  }
+
+  try {
+    const docRef = doc(db, 'settings', 'site');
+    return onSnapshot(
+      docRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          onData(data as Partial<SiteSettings>);
+        } else {
+          // If settings document does not exist in Firestore yet, seed initial settings
+          saveSiteSettingsToFirestore({
+            logoUrl: '/Logo-07(1).png',
+            siteName: 'PRABUNET',
+            schoolName: 'SMK Purnama Bakti',
+            tagline: 'SMK Purnama Bakti. International Global Gateway School',
+            themeColor: 'blue',
+            cbtRedirectUrl: 'http://192.168.1.7/ujian',
+            cbtMode: 'redirect',
+            cbtAutoRedirect: true,
+            secretAdminPassword: '@Purnama165',
+          }).catch((err) => console.warn('Initial site settings seed notice:', err));
+        }
+      },
+      (err) => {
+        console.warn('Notice listening to site settings in Firestore:', err);
+        if (onError) onError(err);
+      }
+    );
+  } catch (err: any) {
+    if (onError) onError(err);
+    return () => {};
+  }
+};
+
+/**
+ * Save / Update site settings in Firestore (settings/site)
+ * Makes changes (e.g. logo, school name, theme) instantly visible across all browsers and devices
+ */
+export const saveSiteSettingsToFirestore = async (
+  settings: Partial<SiteSettings>
+): Promise<void> => {
+  if (!isFirebaseConfigured) {
+    console.warn('Firebase belum aktif, penyimpanan hanya lokal.');
+    return;
+  }
+
+  try {
+    const docRef = doc(db, 'settings', 'site');
+    // Sanitize any undefined properties to avoid Firestore write errors
+    const sanitized: Record<string, any> = {};
+    Object.entries(settings).forEach(([key, val]) => {
+      if (val !== undefined) {
+        sanitized[key] = val;
+      }
+    });
+
+    await setDoc(
+      docRef,
+      {
+        ...sanitized,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    console.log('Site settings synced to Firestore successfully (settings/site)');
+  } catch (err) {
+    console.error('Gagal menyimpan site settings ke Firestore:', err);
+    throw err;
+  }
+};
+
+/**
+ * Realtime listener for generic shared app state (teachers, students, schedules, exams, broadcasts)
+ */
+export const subscribeAppState = (
+  key: string,
+  onData: (data: any) => void,
+  onError?: (error: Error) => void
+): (() => void) => {
+  if (!isFirebaseConfigured) return () => {};
+
+  try {
+    const docRef = doc(db, 'app_state', key);
+    return onSnapshot(
+      docRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const d = snapshot.data();
+          if (d && d.payload !== undefined) {
+            onData(d.payload);
+          }
+        }
+      },
+      (err) => {
+        console.warn(`Notice subscribing to app_state/${key}:`, err);
+        if (onError) onError(err);
+      }
+    );
+  } catch (err: any) {
+    if (onError) onError(err);
+    return () => {};
+  }
+};
+
+/**
+ * Save generic shared app state to Firestore (app_state/{key})
+ */
+export const saveAppStateToFirestore = async (key: string, payload: any): Promise<void> => {
+  if (!isFirebaseConfigured) return;
+
+  try {
+    const docRef = doc(db, 'app_state', key);
+    await setDoc(
+      docRef,
+      {
+        payload,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn(`Failed to sync app_state/${key} to Firestore:`, err);
+  }
+};
 
 // -------------------------------------------------------------
 // BANK SOAL - Realtime Listener & CRUD

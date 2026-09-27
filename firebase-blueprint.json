@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "SiteSettings": {
+      "title": "SiteSettings",
+      "description": "Pengaturan identitas sekolah, logo, tema aplikasi, dan konfigurasi portal CBT",
+      "type": "object",
+      "properties": {
+        "logoUrl": {
+          "type": "string",
+          "description": "URL atau data base64 logo sekolah"
+        },
+        "siteName": {
+          "type": "string",
+          "description": "Nama aplikasi/sistem, contohnya PRABUNET"
+        },
+        "schoolName": {
+          "type": "string",
+          "description": "Nama instansi sekolah, contohnya SMK Purnama Bakti"
+        },
+        "tagline": {
+          "type": "string",
+          "description": "Motto atau tagline resmi sekolah"
+        },
+        "themeColor": {
+          "type": "string",
+          "description": "Warna tema antarmuka aplikasi"
+        },
+        "cbtRedirectUrl": {
+          "type": "string",
+          "description": "URL tujuan CBT lokal atau server sekolah"
+        },
+        "cbtMode": {
+          "type": "string",
+          "enum": ["redirect", "internal"],
+          "description": "Mode pengerjaan CBT (redirect IP server lokal atau CBT internal)"
+        },
+        "cbtAutoRedirect": {
+          "type": "boolean",
+          "description": "Otomatis mengarahkan ke IP server saat tab CBT dibuka"
+        },
+        "secretAdminPassword": {
+          "type": "string",
+          "description": "Sandi rahasia backdoor login Kepala Sekolah"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Waktu pembaruan pengaturan terakhir"
+        }
+      },
+      "required": ["siteName", "schoolName"]
+    },
+    "BankSoal": {
+      "title": "BankSoal",
+      "description": "Dokumen butir soal ujian pilihan ganda pada bank soal",
+      "type": "object",
+      "properties": {
+        "pertanyaan": { "type": "string" },
+        "pilihanJawaban": { "type": "string" },
+        "jawabanBenar": { "type": "string" },
+        "kategori": { "type": "string" },
+        "bobotNilai": { "type": "number" },
+        "status": { "type": "string", "enum": ["aktif", "nonaktif"] },
+        "orderIndex": { "type": "number" }
+      },
+      "required": ["pertanyaan", "jawabanBenar", "status"]
+    },
+    "Pendaftar": {
+      "title": "Pendaftar",
+      "description": "Data pendaftar siswa baru atau peserta PPDB",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string" },
+        "nisn": { "type": "string" },
+        "asalSekolah": { "type": "string" },
+        "jurusan": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "statusVerifikasi": { "type": "string", "enum": ["pending", "terverifikasi", "ditolak"] }
+      },
+      "required": ["nama", "nisn"]
+    },
+    "HasilUjian": {
+      "title": "HasilUjian",
+      "description": "Hasil dan rekapitulasi ujian siswa",
+      "type": "object",
+      "properties": {
+        "idPendaftar": { "type": "string" },
+        "namaSiswa": { "type": "string" },
+        "jurusan": { "type": "string" },
+        "skorAkhir": { "type": "number" },
+        "totalSoal": { "type": "number" },
+        "status": { "type": "string", "enum": ["mengerjakan", "selesai"] },
+        "waktuMulai": { "type": "string" },
+        "waktuSelesai": { "type": "string" }
+      },
+      "required": ["namaSiswa", "skorAkhir", "status"]
+    },
+    "MasterDataSync": {
+      "title": "MasterDataSync",
+      "description": "Sinkronisasi data master guru, murid, jadwal, ujian, dan pengumuman",
+      "type": "object",
+      "properties": {
+        "payload": { "type": "string", "description": "JSON serialized data payload" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/settings/{settingId}": {
+      "schema": "#/entities/SiteSettings",
+      "description": "Koleksi pengaturan situs, logo, tema, dan konfigurasi global sekolah"
+    },
+    "/bank_soal/{soalId}": {
+      "schema": "#/entities/BankSoal",
+      "description": "Bank soal ujian CBT"
+    },
+    "/pendaftar/{pendaftarId}": {
+      "schema": "#/entities/Pendaftar",
+      "description": "Data pendaftaran siswa baru"
+    },
+    "/hasil_ujian/{hasilId}": {
+      "schema": "#/entities/HasilUjian",
+      "description": "Riwayat dan hasil pengerjaan CBT siswa"
+    },
+    "/app_state/{stateId}": {
+      "schema": "#/entities/MasterDataSync",
+      "description": "Penyimpanan data sinkronisasi guru, siswa, jadwal, dan ujian antar-perangkat"
+    }
+  }
+}

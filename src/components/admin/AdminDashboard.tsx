@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp, ADMIN_CREDENTIALS } from '../../context/AppContext';
 import { ThemeColor, TeacherAccount, ExamAttempt, LKPDSubmission, Subject, BroadcastMessage, User } from '../../types';
 import {
@@ -208,6 +208,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
   const [customSchoolName, setCustomSchoolName] = useState(siteSettings.schoolName);
   const [customTagline, setCustomTagline] = useState(siteSettings.tagline);
   const fileLogoInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync inputs with incoming siteSettings and cbtUnlockToken updates (e.g. from cloud/other devices)
+  useEffect(() => {
+    setCustomLogoUrl(siteSettings.logoUrl);
+    setCustomSiteName(siteSettings.siteName);
+    setCustomSchoolName(siteSettings.schoolName);
+    setCustomTagline(siteSettings.tagline);
+    setCustomCbtUrl(siteSettings.cbtRedirectUrl || '192.168.1.7/ujian');
+    setCustomCbtMode(siteSettings.cbtMode || 'redirect');
+    setCustomCbtAutoRedirect(siteSettings.cbtAutoRedirect !== false);
+    setCustomSecretPass(siteSettings.secretAdminPassword || '@Purnama165');
+  }, [siteSettings]);
+
+  useEffect(() => {
+    setTokenInput(cbtUnlockToken || 'SMKPB2026');
+  }, [cbtUnlockToken]);
 
   // Teacher Management State
   const [teacherSearch, setTeacherSearch] = useState('');

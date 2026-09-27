@@ -47,8 +47,11 @@ import {
   Wifi,
   Server,
   Crown,
+  Camera,
+  FileText,
 } from 'lucide-react';
 import { BankSoalAdminPanel } from './BankSoalAdminPanel';
+import { compressImageFile } from '../../lib/imageCompressor';
 
 export const THEME_OPTIONS: {
   id: ThemeColor;
@@ -134,6 +137,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
     teachers,
     students,
     subjects,
+    addSubject,
+    updateSubject,
+    deleteSubject,
     exams,
     examAttempts,
     lkpdSubmissions,
@@ -153,9 +159,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
     broadcasts,
     addBroadcast,
     deleteBroadcast,
+    updateUserProfile,
   } = useApp();
 
-  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'bank_soal' | 'approvals' | 'security' | 'broadcast' | 'identity' | 'theme' | 'teachers' | 'grades'>('overview');
+  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'bank_soal' | 'approvals' | 'security' | 'broadcast' | 'identity' | 'theme' | 'teachers' | 'grades' | 'subjects'>('overview');
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // Student Approval & Management State
@@ -251,17 +258,142 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
     setTimeout(() => setSuccessToast(null), 3000);
   };
 
-  // Logo file upload
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Admin Avatar Edit State
+  const [showAdminAvatarModal, setShowAdminAvatarModal] = useState(false);
+  const [adminAvatarInput, setAdminAvatarInput] = useState(currentUser?.avatar || ADMIN_CREDENTIALS.avatar);
+  const fileAdminAvatarRef = useRef<HTMLInputElement>(null);
+
+  // Subject Management State
+  const [showSubjectModal, setShowSubjectModal] = useState(false);
+  const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
+  const [formSubjectName, setFormSubjectName] = useState('');
+  const [formSubjectCode, setFormSubjectCode] = useState('');
+  const [formSubjectJurusan, setFormSubjectJurusan] = useState<'DKV' | 'TKJ' | 'TBSM' | 'SEMUA'>('DKV');
+  const [formSubjectJenjang, setFormSubjectJenjang] = useState<'X' | 'XI' | 'XII' | 'SEMUA'>('X');
+  const [formSubjectCategory, setFormSubjectCategory] = useState<'Kejuruan' | 'Umum' | 'Pilihan / Mulok'>('Kejuruan');
+  const [formSubjectTeacherEmail, setFormSubjectTeacherEmail] = useState('');
+  const [formSubjectTeacherName, setFormSubjectTeacherName] = useState('');
+  const [formSubjectClasses, setFormSubjectClasses] = useState('X DKV 1, X DKV 2');
+  const [formSubjectDescription, setFormSubjectDescription] = useState('');
+  const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
+  const [subjectJurusanFilter, setSubjectJurusanFilter] = useState<'Semua' | 'DKV' | 'TKJ' | 'TBSM' | 'SEMUA'>('Semua');
+
+  const handleAdminAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setCustomLogoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageFile(file, { maxWidth: 280, maxHeight: 280, quality: 0.82 });
+        setAdminAvatarInput(compressed);
+      } catch (err) {
+        console.warn('Gagal kompresi foto:', err);
+      }
+    }
+  };
+
+  const handleSaveAdminAvatar = () => {
+    if (adminAvatarInput) {
+      updateUserProfile({ avatar: adminAvatarInput });
+      setShowAdminAvatarModal(false);
+      showNotificationToast('Foto profil Kepala Sekolah berhasil diperbarui dan disimpan ke cloud Firebase!');
+    }
+  };
+
+  const handleOpenAddSubject = () => {
+    setEditingSubjectId(null);
+    setFormSubjectName('');
+    setFormSubjectCode(`DKV-X-${String(subjects.length + 1).padStart(2, '0')}`);
+    setFormSubjectJurusan('DKV');
+    setFormSubjectJenjang('X');
+    setFormSubjectCategory('Kejuruan');
+    const defaultTeacher = teachers[0] || { name: 'Deri Arisandi, S.Kom.', email: 'deri@smkpurnamabakti.sch.id' };
+    setFormSubjectTeacherName(defaultTeacher.name);
+    setFormSubjectTeacherEmail(defaultTeacher.email);
+    setFormSubjectClasses('X DKV 1, X DKV 2');
+    setFormSubjectDescription('');
+    setShowSubjectModal(true);
+  };
+
+  const handleEditSubject = (subj: Subject) => {
+    setEditingSubjectId(subj.id);
+    setFormSubjectName(subj.name);
+    setFormSubjectCode(subj.code);
+    setFormSubjectJurusan(subj.jurusan);
+    setFormSubjectJenjang(subj.jenjang);
+    setFormSubjectCategory(subj.category);
+    setFormSubjectTeacherName(subj.teacherName);
+    setFormSubjectTeacherEmail(subj.teacherEmail);
+    setFormSubjectClasses(subj.targetClasses ? subj.targetClasses.join(', ') : '');
+    setFormSubjectDescription(subj.description || '');
+    setShowSubjectModal(true);
+  };
+
+  const handleSaveSubject = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formSubjectName.trim()) return;
+
+    const classesArray = formSubjectClasses
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    if (editingSubjectId) {
+      updateSubject(editingSubjectId, {
+        name: formSubjectName.trim(),
+        code: formSubjectCode.trim() || `MAPEL-${Date.now().toString().slice(-4)}`,
+        jurusan: formSubjectJurusan,
+        jenjang: formSubjectJenjang,
+        category: formSubjectCategory,
+        teacherName: formSubjectTeacherName.trim(),
+        teacherEmail: formSubjectTeacherEmail.trim(),
+        targetClasses: classesArray.length > 0 ? classesArray : ['Semua Kelas'],
+        description: formSubjectDescription.trim(),
+      });
+      showNotificationToast(`Mata pelajaran "${formSubjectName}" berhasil diperbarui di cloud Firebase!`);
+    } else {
+      addSubject({
+        name: formSubjectName.trim(),
+        code: formSubjectCode.trim() || `${formSubjectJurusan}-${formSubjectJenjang}-${Date.now().toString().slice(-3)}`,
+        jurusan: formSubjectJurusan,
+        jenjang: formSubjectJenjang,
+        category: formSubjectCategory,
+        teacherName: formSubjectTeacherName.trim(),
+        teacherEmail: formSubjectTeacherEmail.trim(),
+        targetClasses: classesArray.length > 0 ? classesArray : ['Semua Kelas'],
+        description: formSubjectDescription.trim(),
+        totalMeetings: 30,
+        icon: formSubjectJurusan === 'DKV' ? 'Palette' : formSubjectJurusan === 'TKJ' ? 'Network' : formSubjectJurusan === 'TBSM' ? 'Wrench' : 'BookOpen',
+        color: formSubjectJurusan === 'DKV' ? 'from-purple-600 to-indigo-600' : formSubjectJurusan === 'TKJ' ? 'from-blue-600 to-cyan-600' : formSubjectJurusan === 'TBSM' ? 'from-amber-600 to-red-600' : 'from-emerald-600 to-teal-600',
+      });
+      showNotificationToast(`Mata pelajaran "${formSubjectName}" berhasil dibuat lengkap dengan 30 modul dan tersimpan di Firebase!`);
+    }
+
+    setShowSubjectModal(false);
+  };
+
+  const handleDeleteSubject = (subj: Subject) => {
+    if (window.confirm(`Yakin ingin menghapus mata pelajaran "${subj.name}" (${subj.code}) beserta seluruh modul pertemuannya?`)) {
+      deleteSubject(subj.id);
+      showNotificationToast(`Mata pelajaran "${subj.name}" berhasil dihapus dari cloud.`);
+    }
+  };
+
+  // Logo file upload with compression
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const compressed = await compressImageFile(file, { maxWidth: 450, maxHeight: 450, quality: 0.88, mimeType: 'image/png' });
+        setCustomLogoUrl(compressed);
+      } catch (err) {
+        console.warn('Gagal kompresi logo:', err);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setCustomLogoUrl(reader.result);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -592,12 +724,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
       <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 rounded-3xl p-4 sm:p-5 text-white shadow-lg relative overflow-hidden space-y-3">
         <div className="flex items-start justify-between relative z-10">
           <div className="flex items-center space-x-3">
-            <div className="w-13 h-13 rounded-2xl bg-white/20 p-1 backdrop-blur-xs border-2 border-white/30 overflow-hidden shrink-0 shadow-inner">
-              <img
-                src={currentUser?.avatar || ADMIN_CREDENTIALS.avatar}
-                alt="Bapak Kepala Sekolah"
-                className="w-full h-full object-cover rounded-xl"
-              />
+            <div className="relative group shrink-0">
+              <div className="w-14 h-14 rounded-2xl bg-white/20 p-0.5 backdrop-blur-xs border-2 border-white/40 overflow-hidden shadow-inner flex items-center justify-center">
+                <img
+                  src={currentUser?.avatar || ADMIN_CREDENTIALS.avatar}
+                  alt="Bapak Kepala Sekolah"
+                  className="w-full h-full object-cover rounded-xl"
+                />
+              </div>
+              <button
+                type="button"
+                id="btn-admin-avatar-trigger"
+                onClick={() => {
+                  setAdminAvatarInput(currentUser?.avatar || ADMIN_CREDENTIALS.avatar);
+                  setShowAdminAvatarModal(true);
+                }}
+                className="absolute -bottom-1 -right-1 p-1 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-full shadow-md border-2 border-amber-900 transition-transform active:scale-95 cursor-pointer"
+                title="Ganti Foto Profil Kepala Sekolah"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </button>
             </div>
             <div>
               <div className="flex items-center gap-1.5 mb-0.5">
@@ -614,6 +760,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
               <p className="text-xs text-amber-100 font-medium">
                 {ADMIN_CREDENTIALS.title}
               </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminAvatarInput(currentUser?.avatar || ADMIN_CREDENTIALS.avatar);
+                  setShowAdminAvatarModal(true);
+                }}
+                className="mt-1 px-2 py-0.5 bg-black/25 hover:bg-black/40 text-amber-200 hover:text-white rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors border border-white/20"
+              >
+                <Camera className="w-2.5 h-2.5" />
+                <span>Ganti Foto Profil</span>
+              </button>
             </div>
           </div>
         </div>
@@ -698,6 +855,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
         >
           <Users className="w-3.5 h-3.5" />
           <span>Dewan Guru</span>
+        </button>
+
+        <button
+          id="btn-tab-admin-subjects"
+          onClick={() => setActiveAdminTab('subjects')}
+          className={`py-2 px-1 rounded-xl transition-all flex flex-col items-center gap-1 ${
+            activeAdminTab === 'subjects'
+              ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
+              : 'bg-white/60 text-slate-700 hover:bg-white'
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5 text-indigo-700" />
+          <span className="truncate max-w-full">Mata Pelajaran</span>
         </button>
 
         <button
@@ -1927,7 +2097,180 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 5: MASTER GRADEBOOK & EDIT GRADES */}
+      {/* TAB: MATA PELAJARAN (MAPEL) & 30 MODUL PERTEMUAN */}
+      {/* ========================================================================= */}
+      {activeAdminTab === 'subjects' && (
+        <div className="space-y-3">
+          <div className="p-4 bg-white rounded-3xl border border-slate-200 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4 text-indigo-600" />
+                  <span>Manajemen Mata Pelajaran & Modul Belajar</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Kelola daftar kurikulum, guru pengampu, kelas target, serta 30 pertemuan dan LKPD tiap mata pelajaran.
+                </p>
+              </div>
+              <button
+                type="button"
+                id="btn-admin-add-subject"
+                onClick={handleOpenAddSubject}
+                className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 flex items-center gap-1.5 shrink-0 cursor-pointer self-start sm:self-auto"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Tambah Mapel Baru</span>
+              </button>
+            </div>
+
+            {/* Jurusan Filter Pills & Search */}
+            <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-slate-100">
+              <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+                {(['Semua', 'DKV', 'TKJ', 'TBSM', 'SEMUA'] as const).map((jur) => (
+                  <button
+                    key={jur}
+                    type="button"
+                    onClick={() => setSubjectJurusanFilter(jur)}
+                    className={`px-3 py-1.5 rounded-xl font-bold shrink-0 transition-all cursor-pointer ${
+                      subjectJurusanFilter === jur
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {jur === 'SEMUA' ? 'Umum / Semua' : jur}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={subjectSearchQuery}
+                  onChange={(e) => setSubjectSearchQuery(e.target.value)}
+                  placeholder="Cari mata pelajaran, kode, atau guru pengampu..."
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Subjects Grid */}
+            {(() => {
+              const filtered = subjects.filter((s) => {
+                const matchJurusan =
+                  subjectJurusanFilter === 'Semua' || s.jurusan === subjectJurusanFilter;
+                const q = subjectSearchQuery.toLowerCase();
+                const matchQuery =
+                  !q ||
+                  s.name.toLowerCase().includes(q) ||
+                  s.code.toLowerCase().includes(q) ||
+                  s.teacherName.toLowerCase().includes(q) ||
+                  s.category?.toLowerCase().includes(q);
+                return matchJurusan && matchQuery;
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300 space-y-2">
+                    <BookOpen className="w-8 h-8 text-slate-400 mx-auto" />
+                    <p className="text-xs font-bold text-slate-700">Tidak ada mata pelajaran yang cocok.</p>
+                    <p className="text-[11px] text-slate-500">
+                      Ubah kata kunci pencarian atau klik tombol Tambah Mapel Baru di atas.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  {filtered.map((s) => (
+                    <div
+                      key={s.id}
+                      className="p-3.5 bg-slate-50 hover:bg-white rounded-2xl border border-slate-200 hover:border-indigo-300 transition-all shadow-xs hover:shadow-md space-y-2 flex flex-col justify-between"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-1 mb-1">
+                              <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-mono text-[10px] font-extrabold border border-indigo-200">
+                                {s.code}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-800 text-[10px] font-bold">
+                                {s.jurusan} • Kelas {s.jenjang}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold">
+                                {s.category || 'Kejuruan'}
+                              </span>
+                            </div>
+                            <h4 className="text-xs font-bold text-slate-900 leading-snug">{s.name}</h4>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 text-[11px] text-slate-600">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-slate-800">👨‍🏫 Guru:</span>
+                            <span>{s.teacherName}</span>
+                            <span className="text-slate-400 font-mono text-[10px]">({s.teacherEmail})</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-slate-800">🎯 Kelas:</span>
+                            <span className="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-[10px] text-slate-700 font-semibold">
+                              {s.targetClasses ? s.targetClasses.join(', ') : 'Semua'}
+                            </span>
+                          </div>
+                          {s.description && (
+                            <p className="text-[10px] text-slate-500 line-clamp-2 italic pt-0.5">
+                              "{s.description}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-2 text-xs">
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>30 Pertemuan & LKPD</span>
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          {onSelectSubject && (
+                            <button
+                              type="button"
+                              onClick={() => onSelectSubject(s)}
+                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Buka 30 Modul & LKPD"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Buka Modul</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleEditSubject(s)}
+                            className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Edit Data Mapel"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSubject(s)}
+                            className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer transition-colors"
+                            title="Hapus Mapel"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
       {/* ========================================================================= */}
       {activeAdminTab === 'grades' && (
         <div className="space-y-3">
@@ -2509,6 +2852,305 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSubject 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: TAMBAH / EDIT MATA PELAJARAN (MAPEL) */}
+      {/* ========================================================================= */}
+      {showSubjectModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    {editingSubjectId ? 'Edit Data Mata Pelajaran' : 'Tambah Mata Pelajaran Baru'}
+                  </h3>
+                  <p className="text-[10px] text-slate-500">
+                    Tersimpan langsung ke cloud Firebase dan otomatis membuat 30 modul pertemuan.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSubjectModal(false)}
+                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center text-xs font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSubject} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Nama Mata Pelajaran:</label>
+                <input
+                  type="text"
+                  value={formSubjectName}
+                  onChange={(e) => setFormSubjectName(e.target.value)}
+                  placeholder="Contoh: Desain Grafis Percetakan"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Kode Mapel:</label>
+                  <input
+                    type="text"
+                    value={formSubjectCode}
+                    onChange={(e) => setFormSubjectCode(e.target.value)}
+                    placeholder="Contoh: DKV-XI-01"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Kategori:</label>
+                  <select
+                    value={formSubjectCategory}
+                    onChange={(e) => setFormSubjectCategory(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  >
+                    <option value="Kejuruan">Kejuruan (Produktif)</option>
+                    <option value="Umum">Umum (Normatif/Adaptif)</option>
+                    <option value="Pilihan / Mulok">Muatan Lokal / Pilihan</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Jurusan / Program:</label>
+                  <select
+                    value={formSubjectJurusan}
+                    onChange={(e) => {
+                      const jur = e.target.value as any;
+                      setFormSubjectJurusan(jur);
+                      setFormSubjectCode(`${jur}-${formSubjectJenjang}-${Date.now().toString().slice(-2)}`);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  >
+                    <option value="DKV">DKV (Desain Visual)</option>
+                    <option value="TKJ">TKJ (Teknik Jaringan)</option>
+                    <option value="TBSM">TBSM (Sepeda Motor)</option>
+                    <option value="SEMUA">Semua Jurusan / Umum</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Jenjang Tingkat:</label>
+                  <select
+                    value={formSubjectJenjang}
+                    onChange={(e) => setFormSubjectJenjang(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  >
+                    <option value="X">Kelas X</option>
+                    <option value="XI">Kelas XI</option>
+                    <option value="XII">Kelas XII</option>
+                    <option value="SEMUA">Semua Tingkat</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-3 bg-indigo-50/60 rounded-2xl border border-indigo-100 space-y-2">
+                <label className="block font-bold text-indigo-950">Pilih Guru Pengampu:</label>
+                <select
+                  onChange={(e) => {
+                    const t = teachers.find((tc) => tc.email === e.target.value);
+                    if (t) {
+                      setFormSubjectTeacherName(t.name);
+                      setFormSubjectTeacherEmail(t.email);
+                    }
+                  }}
+                  value={formSubjectTeacherEmail}
+                  className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                >
+                  <option value="">-- Pilih dari Dewan Guru --</option>
+                  {teachers.map((t) => (
+                    <option key={t.email} value={t.email}>
+                      {t.name} ({t.email})
+                    </option>
+                  ))}
+                </select>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Nama Guru:</label>
+                    <input
+                      type="text"
+                      value={formSubjectTeacherName}
+                      onChange={(e) => setFormSubjectTeacherName(e.target.value)}
+                      placeholder="Nama & Gelar Guru"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-800 font-medium"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Email Guru:</label>
+                    <input
+                      type="email"
+                      value={formSubjectTeacherEmail}
+                      onChange={(e) => setFormSubjectTeacherEmail(e.target.value)}
+                      placeholder="email@smkpurnamabakti.sch.id"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-800 font-medium"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Kelas Sasaran / Rombel (pisahkan dengan koma):
+                </label>
+                <input
+                  type="text"
+                  value={formSubjectClasses}
+                  onChange={(e) => setFormSubjectClasses(e.target.value)}
+                  placeholder="Contoh: X DKV 1, X DKV 2"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Deskripsi & Ruang Lingkup Materi:</label>
+                <textarea
+                  rows={2}
+                  value={formSubjectDescription}
+                  onChange={(e) => setFormSubjectDescription(e.target.value)}
+                  placeholder="Ringkasan kompetensi dasar dan capaian pembelajaran..."
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSubjectModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-bold shadow-md shadow-blue-500/20 cursor-pointer"
+                >
+                  {editingSubjectId ? 'Simpan Perubahan' : 'Buat Mapel & 30 Modul'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: GANTI FOTO PROFIL KEPALA SEKOLAH */}
+      {/* ========================================================================= */}
+      {showAdminAvatarModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Camera className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">Ganti Foto Profil Kepala Sekolah</h3>
+                  <p className="text-[10px] text-slate-500">Tersinkronkan langsung ke cloud Firebase.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdminAvatarModal(false)}
+                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center text-xs font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center space-y-3">
+              <div className="w-20 h-20 rounded-2xl bg-amber-50 border-2 border-amber-400 p-0.5 overflow-hidden shadow-inner flex items-center justify-center">
+                <img
+                  src={adminAvatarInput || ADMIN_CREDENTIALS.avatar}
+                  alt="Preview"
+                  className="w-full h-full object-cover rounded-xl"
+                />
+              </div>
+
+              {/* Upload file button with compression */}
+              <input
+                type="file"
+                ref={fileAdminAvatarRef}
+                onChange={handleAdminAvatarUpload}
+                accept="image/*"
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileAdminAvatarRef.current?.click()}
+                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-300 transition-colors cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Unggah Foto dari HP / Laptop</span>
+              </button>
+
+              <div className="w-full space-y-1 text-left">
+                <label className="block text-[11px] font-bold text-slate-700">Atau pilih avatar resmi:</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=200&fit=crop&crop=faces',
+                    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&fit=crop&crop=faces',
+                    'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&fit=crop&crop=faces',
+                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&fit=crop&crop=faces',
+                  ].map((presetUrl, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setAdminAvatarInput(presetUrl)}
+                      className={`h-12 rounded-xl overflow-hidden border-2 transition-transform active:scale-95 cursor-pointer ${
+                        adminAvatarInput === presetUrl ? 'border-amber-500 ring-2 ring-amber-300' : 'border-slate-200'
+                      }`}
+                    >
+                      <img src={presetUrl} alt={`Avatar ${idx + 1}`} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="w-full text-left space-y-1">
+                <label className="block text-[11px] font-bold text-slate-700">Atau tautan URL foto:</label>
+                <input
+                  type="text"
+                  value={adminAvatarInput}
+                  onChange={(e) => setAdminAvatarInput(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-medium focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                />
+              </div>
+
+              <div className="w-full flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdminAvatarModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAdminAvatar}
+                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer"
+                >
+                  Simpan Foto ke Firebase
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

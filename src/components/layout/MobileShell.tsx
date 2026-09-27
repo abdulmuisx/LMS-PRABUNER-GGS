@@ -35,6 +35,7 @@ import { AuthModal } from '../auth/AuthModal';
 import { ChangePasswordModal } from '../auth/ChangePasswordModal';
 import { Dock, DockIcon, DockItem, DockLabel } from '../ui/dock';
 import { cn } from '../../lib/utils';
+import { compressImageFile } from '../../lib/imageCompressor';
 
 interface MobileShellProps {
   children: React.ReactNode;
@@ -144,17 +145,23 @@ export const MobileShell: React.FC<MobileShellProps> = ({ children }) => {
     }
   };
 
-  // Handle avatar image file upload
-  const handleAvatarFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle avatar image file upload with compression for Firebase Firestore compatibility
+  const handleAvatarFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setEditAvatar(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageFile(file, { maxWidth: 280, maxHeight: 280, quality: 0.82 });
+        setEditAvatar(compressed);
+      } catch (err) {
+        console.warn('Gagal kompresi foto:', err);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setEditAvatar(reader.result);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 

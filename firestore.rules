@@ -42,6 +42,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 6. Koleksi users (Profil & Foto Profil Pengguna: Admin, Guru, Siswa)
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // 7. Koleksi subject_meetings (Modul 30 Pertemuan per Mapel)
+    match /subject_meetings/{subjectId} {
+      allow read, write: if true;
+    }
+
     // Default allow for app collections
     match /{document=**} {
       allow read, write: if true;

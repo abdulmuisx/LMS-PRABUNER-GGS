@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Subject, MeetingModule, Exam, Question, ScheduleItem, LKPDSubmission, ExamAttempt, StudentAnswer } from '../../types';
+import { compressImageFile } from '../../lib/imageCompressor';
 import {
   Calendar,
   BookOpen,
@@ -38,6 +39,7 @@ import {
   ShieldCheck,
   Megaphone,
   Radio,
+  Upload,
 } from 'lucide-react';
 
 export interface TeacherDashboardProps {
@@ -48,6 +50,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onSelectSubj
   const {
     currentUser,
     subjects,
+    addSubject,
     schedules,
     exams,
     examAttempts,
@@ -187,6 +190,70 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onSelectSubj
   const [newSchTimeEnd, setNewSchTimeEnd] = useState('09:30');
   const [newSchRoom, setNewSchRoom] = useState('Ruang Teori 1.01');
   const [newSchTopic, setNewSchTopic] = useState('Pembahasan Modul Teori & Praktik LKPD');
+
+  // Teacher Add Subject Modal State
+  const [showAddSubjectModal, setShowAddSubjectModal] = useState(false);
+  const [newSubjName, setNewSubjName] = useState('');
+  const [newSubjCode, setNewSubjCode] = useState('');
+  const [newSubjJurusan, setNewSubjJurusan] = useState<'DKV' | 'TKJ' | 'TBSM' | 'SEMUA'>('DKV');
+  const [newSubjJenjang, setNewSubjJenjang] = useState<'X' | 'XI' | 'XII' | 'SEMUA'>('X');
+  const [newSubjClasses, setNewSubjClasses] = useState('X DKV 1, X DKV 2');
+  const [newSubjCategory, setNewSubjCategory] = useState<'Kejuruan' | 'Umum' | 'Pilihan / Mulok'>('Kejuruan');
+  const [newSubjDescription, setNewSubjDescription] = useState('');
+  const photoFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleTeacherPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const compressed = await compressImageFile(file, { maxWidth: 280, maxHeight: 280, quality: 0.82 });
+        setProfileAvatar(compressed);
+      } catch (err) {
+        console.warn('Gagal kompresi foto guru:', err);
+      }
+    }
+  };
+
+  const handleOpenAddSubjectTeacher = () => {
+    setNewSubjName('');
+    setNewSubjJurusan('DKV');
+    setNewSubjJenjang('X');
+    setNewSubjCategory('Kejuruan');
+    setNewSubjCode(`DKV-X-${Date.now().toString().slice(-3)}`);
+    setNewSubjClasses('X DKV 1, X DKV 2');
+    setNewSubjDescription('');
+    setShowAddSubjectModal(true);
+  };
+
+  const handleSaveSubjectTeacher = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSubjName.trim()) return;
+
+    const classesArray = newSubjClasses
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    const res = addSubject({
+      name: newSubjName.trim(),
+      code: newSubjCode.trim() || `${newSubjJurusan}-${newSubjJenjang}-${Date.now().toString().slice(-3)}`,
+      jurusan: newSubjJurusan,
+      jenjang: newSubjJenjang,
+      category: newSubjCategory,
+      teacherName: currentUser?.name || 'Dewan Guru SMK PB',
+      teacherEmail: currentUser?.email || 'guru@smkpurnamabakti.sch.id',
+      targetClasses: classesArray.length > 0 ? classesArray : ['Semua Kelas'],
+      description: newSubjDescription.trim(),
+      totalMeetings: 30,
+      icon: newSubjJurusan === 'DKV' ? 'Palette' : newSubjJurusan === 'TKJ' ? 'Network' : newSubjJurusan === 'TBSM' ? 'Wrench' : 'BookOpen',
+      color: newSubjJurusan === 'DKV' ? 'from-purple-600 to-indigo-600' : newSubjJurusan === 'TKJ' ? 'from-blue-600 to-cyan-600' : newSubjJurusan === 'TBSM' ? 'from-amber-600 to-red-600' : 'from-emerald-600 to-teal-600',
+    });
+
+    if (res?.subject?.id) {
+      setSelectedSubjectId(res.subject.id);
+    }
+    setShowAddSubjectModal(false);
+  };
 
   // Open Exam Editor
   const handleOpenEditExam = (ex: Exam) => {
@@ -628,7 +695,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onSelectSubj
         <div className="space-y-3">
           {/* Subject Switcher Header */}
           <div className="p-3 bg-white rounded-2xl border border-slate-200 space-y-2 shadow-xs">
-            <label className="block text-xs font-bold text-slate-700">Pilih Mata Pelajaran:</label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700">Pilih Mata Pelajaran Diampu:</label>
+              <button
+                type="button"
+                id="btn-teacher-add-subject"
+                onClick={handleOpenAddSubjectTeacher}
+                className="px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-3 h-3" />
+                <span>+ Tambah Mapel Saya</span>
+              </button>
+            </div>
             <div className="relative">
               <select
                 id="select-subject-teacher"

@@ -14,7 +14,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
-import { SiteSettings } from '../types';
+import { SiteSettings, User, Subject, MeetingModule } from '../types';
 
 export interface PilihanJawaban {
   key: string; // 'A', 'B', 'C', 'D', 'E'
@@ -150,11 +150,13 @@ export const saveSiteSettingsToFirestore = async (
 
 /**
  * Realtime listener for generic shared app state (teachers, students, schedules, exams, broadcasts)
+ * If the document does not exist in Firestore yet and initialDefault is provided, it auto-seeds to Firestore
  */
 export const subscribeAppState = (
   key: string,
   onData: (data: any) => void,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
+  initialDefault?: any
 ): (() => void) => {
   if (!isFirebaseConfigured) return () => {};
 
@@ -168,6 +170,11 @@ export const subscribeAppState = (
           if (d && d.payload !== undefined) {
             onData(d.payload);
           }
+        } else if (initialDefault !== undefined) {
+          // Auto-seed to Firestore if collection/document is newly accessed
+          saveAppStateToFirestore(key, initialDefault).catch((e) =>
+            console.warn(`Auto-seed app_state/${key} notice:`, e)
+          );
         }
       },
       (err) => {
@@ -183,22 +190,139 @@ export const subscribeAppState = (
 
 /**
  * Save generic shared app state to Firestore (app_state/{key})
+ * Safely sanitizes payload by removing undefined values to prevent Firestore rejection
  */
 export const saveAppStateToFirestore = async (key: string, payload: any): Promise<void> => {
   if (!isFirebaseConfigured) return;
 
   try {
     const docRef = doc(db, 'app_state', key);
+    // Sanitize any undefined properties to avoid Firestore write errors
+    const sanitized = JSON.parse(JSON.stringify(payload));
     await setDoc(
       docRef,
       {
-        payload,
+        payload: sanitized,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
     );
+    console.log(`[Firestore] app_state/${key} tersimpan ke cloud.`);
   } catch (err) {
     console.warn(`Failed to sync app_state/${key} to Firestore:`, err);
+  }
+};
+
+/**
+ * Save individual user profile (including avatar photo, phone, etc.) to Firestore (users/{userId})
+ */
+export const saveUserProfileToFirestore = async (user: User): Promise<void> => {
+  if (!isFirebaseConfigured || !user || !user.id) return;
+  try {
+    const docRef = doc(db, 'users', user.id);
+    const sanitized = JSON.parse(JSON.stringify(user));
+    await setDoc(
+      docRef,
+      {
+        ...sanitized,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    console.log(`[Firestore] Profil & foto user ${user.name} (${user.id}) tersimpan ke Firestore.`);
+  } catch (err) {
+    console.warn('Gagal menyimpan profil user ke Firestore:', err);
+  }
+};
+
+/**
+ * Realtime listener for a user profile
+ */
+export const subscribeUserProfile = (
+  userId: string,
+  onData: (user: Partial<User>) => void
+): (() => void) => {
+  if (!isFirebaseConfigured || !userId) return () => {};
+  try {
+    const docRef = doc(db, 'users', userId);
+    return onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        onData(snap.data() as Partial<User>);
+      }
+    });
+  } catch (err) {
+    console.warn('Error subscribing to user profile:', err);
+    return () => {};
+  }
+};
+
+/**
+ * Realtime listener for 30 meetings of a specific subject from Firestore (subject_meetings/{subjectId})
+ */
+export const subscribeSubjectMeetings = (
+  subjectId: string,
+  onData: (meetings: MeetingModule[]) => void
+): (() => void) => {
+  if (!isFirebaseConfigured || !subjectId) return () => {};
+  try {
+    const docRef = doc(db, 'subject_meetings', subjectId);
+    return onSnapshot(
+      docRef,
+      (snap) => {
+        if (snap.exists()) {
+          const d = snap.data();
+          if (d && Array.isArray(d.meetings)) {
+            onData(d.meetings);
+          }
+        }
+      },
+      (err) => {
+        console.warn(`Notice subscribing to subject_meetings/${subjectId}:`, err);
+      }
+    );
+  } catch (err) {
+    console.warn(`Error subscribing to subject_meetings/${subjectId}:`, err);
+    return () => {};
+  }
+};
+
+/**
+ * Save 30 meetings of a specific subject to Firestore (subject_meetings/{subjectId})
+ * Stored per subject to prevent exceeding the 1MB document size limit
+ */
+export const saveSubjectMeetingsToFirestore = async (
+  subjectId: string,
+  meetings: MeetingModule[]
+): Promise<void> => {
+  if (!isFirebaseConfigured || !subjectId) return;
+  try {
+    const docRef = doc(db, 'subject_meetings', subjectId);
+    const sanitized = JSON.parse(JSON.stringify(meetings));
+    await setDoc(
+      docRef,
+      {
+        subjectId,
+        meetings: sanitized,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    console.log(`[Firestore] Meetings untuk mapel ${subjectId} tersimpan ke cloud.`);
+  } catch (err) {
+    console.warn(`Gagal menyimpan meetings untuk mapel ${subjectId} ke Firestore:`, err);
+  }
+};
+
+/**
+ * Delete subject meetings from Firestore when a subject is deleted
+ */
+export const deleteSubjectMeetingsFromFirestore = async (subjectId: string): Promise<void> => {
+  if (!isFirebaseConfigured || !subjectId) return;
+  try {
+    const docRef = doc(db, 'subject_meetings', subjectId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.warn(`Gagal menghapus meetings untuk mapel ${subjectId} di Firestore:`, err);
   }
 };
 

@@ -50,6 +50,58 @@
       },
       "required": ["siteName", "schoolName"]
     },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Profil pengguna individual (Admin, Guru, Siswa) termasuk avatar/foto profil",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "guru", "murid"] },
+        "avatar": { "type": "string", "description": "URL atau base64 foto profil terkompresi" },
+        "phone": { "type": "string" },
+        "title": { "type": "string" },
+        "nisn": { "type": "string" },
+        "jurusan": { "type": "string" },
+        "kelas": { "type": "string" },
+        "rombel": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "role"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Mata pelajaran sekolah SMK Purnama Bakti",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "jurusan": { "type": "string" },
+        "jenjang": { "type": "string" },
+        "teacherEmail": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "targetClasses": { "type": "array", "items": { "type": "string" } },
+        "totalMeetings": { "type": "number" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" }
+      },
+      "required": ["id", "name", "teacherName", "jurusan", "jenjang"]
+    },
+    "SubjectMeetings": {
+      "title": "SubjectMeetings",
+      "description": "30 modul pertemuan belajar, video, dan LKPD per mata pelajaran",
+      "type": "object",
+      "properties": {
+        "subjectId": { "type": "string" },
+        "meetings": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["subjectId", "meetings"]
+    },
     "BankSoal": {
       "title": "BankSoal",
       "description": "Dokumen butir soal ujian pilihan ganda pada bank soal",
@@ -110,6 +162,14 @@
     "/settings/{settingId}": {
       "schema": "#/entities/SiteSettings",
       "description": "Koleksi pengaturan situs, logo, tema, dan konfigurasi global sekolah"
+    },
+    "/users/{userId}": {
+      "schema": "#/entities/UserProfile",
+      "description": "Profil pengguna, foto avatar, data login admin/guru/murid"
+    },
+    "/subject_meetings/{subjectId}": {
+      "schema": "#/entities/SubjectMeetings",
+      "description": "30 modul pertemuan materi per mata pelajaran"
     },
     "/bank_soal/{soalId}": {
       "schema": "#/entities/BankSoal",

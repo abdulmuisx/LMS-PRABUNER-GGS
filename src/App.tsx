@@ -3,6 +3,7 @@ import { AppProvider, useApp } from './context/AppContext';
 import { MobileShell } from './components/layout/MobileShell';
 import { TeacherDashboard } from './components/teacher/TeacherDashboard';
 import { StudentDashboard } from './components/student/StudentDashboard';
+import { AdminDashboard } from './components/admin/AdminDashboard';
 import { SubjectDetailView } from './components/student/SubjectDetailView';
 import { ScheduleCalendarView } from './components/schedule/ScheduleCalendarView';
 import { ExamHubView } from './components/exam/ExamHubView';
@@ -26,6 +27,9 @@ const MainAppContent: React.FC = () => {
   // Render based on activeTab
   switch (activeTab) {
     case 'home':
+      if (currentUser?.role === 'admin') {
+        return <AdminDashboard onSelectSubject={(sbj: Subject) => setSelectedSubject(sbj)} />;
+      }
       return currentUser?.role === 'guru' ? (
         <TeacherDashboard onSelectSubject={(sbj: Subject) => setSelectedSubject(sbj)} />
       ) : (
@@ -40,6 +44,9 @@ const MainAppContent: React.FC = () => {
       return <ScheduleCalendarView />;
 
     case 'subjects':
+      if (currentUser?.role === 'admin') {
+        return <AdminDashboard onSelectSubject={(sbj: Subject) => setSelectedSubject(sbj)} />;
+      }
       return currentUser?.role === 'guru' ? (
         <TeacherDashboard onSelectSubject={(sbj: Subject) => setSelectedSubject(sbj)} />
       ) : (
@@ -57,11 +64,16 @@ const MainAppContent: React.FC = () => {
       return <AccountProfileView />;
 
     default:
-      return <StudentDashboard
-        onSelectSubject={(sbj) => setSelectedSubject(sbj)}
-        onGoToCbt={() => setActiveTab('cbt')}
-        onGoToSchedule={() => setActiveTab('schedule')}
-      />;
+      if (currentUser?.role === 'admin') {
+        return <AdminDashboard onSelectSubject={(sbj) => setSelectedSubject(sbj)} />;
+      }
+      return (
+        <StudentDashboard
+          onSelectSubject={(sbj) => setSelectedSubject(sbj)}
+          onGoToCbt={() => setActiveTab('cbt')}
+          onGoToSchedule={() => setActiveTab('schedule')}
+        />
+      );
   }
 };
 

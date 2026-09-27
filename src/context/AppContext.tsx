@@ -26,6 +26,11 @@ import {
   saveSiteSettingsToFirestore,
   subscribeAppState,
   saveAppStateToFirestore,
+  saveUserProfileToFirestore,
+  subscribeUserProfile,
+  subscribeSubjectMeetings,
+  saveSubjectMeetingsToFirestore,
+  deleteSubjectMeetingsFromFirestore,
 } from '../services/firestoreService';
 
 export const ADMIN_CREDENTIALS = {
@@ -92,6 +97,9 @@ interface AppContextType {
   updateTeacher: (teacherEmail: string, updated: Partial<TeacherAccount>) => { success: boolean; message: string };
   deleteTeacher: (teacherEmail: string) => { success: boolean; message: string };
   // Subject & Meetings
+  addSubject: (subject: Omit<Subject, 'id'>) => { success: boolean; message: string; subject: Subject };
+  updateSubject: (subjectId: string, updated: Partial<Subject>) => { success: boolean; message: string };
+  deleteSubject: (subjectId: string) => { success: boolean; message: string };
   getMeetingsForSubject: (subjectId: string) => MeetingModule[];
   updateMeetingModule: (subjectId: string, meetingNumber: number, updated: Partial<MeetingModule>) => void;
   // Exams & Grading
@@ -180,8 +188,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return null;
   });
 
-  // Subjects
-  const [subjects] = useState<Subject[]>(INITIAL_SUBJECTS);
+  // Subjects (Persisted in localStorage & synced with Firestore)
+  const [subjects, setSubjects] = useState<Subject[]>(() => {
+    const saved = localStorage.getItem('prabunet_subjects');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+    return INITIAL_SUBJECTS;
+  });
+
+  // Admin custom profile (to preserve custom avatar across logins & devices)
+  const [adminCustomProfile, setAdminCustomProfile] = useState<{ avatar?: string; name?: string; phone?: string }>(() => {
+    const saved = localStorage.getItem('prabunet_admin_profile');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {}
+    }
+    return {};
+  });
 
   // 30 Meetings cache/store per subject ID
   const [subjectMeetings, setSubjectMeetings] = useState<Record<string, MeetingModule[]>>(() => {
@@ -313,8 +341,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const remoteSiteSettingsRef = useRef<string>('');
   const remoteTeachersRef = useRef<string>('');
   const remoteStudentsRef = useRef<string>('');
+  const remoteSubjectsRef = useRef<string>('');
+  const remoteMeetingsRef = useRef<string>('');
   const remoteSchedulesRef = useRef<string>('');
   const remoteExamsRef = useRef<string>('');
+  const remoteExamAttemptsRef = useRef<string>('');
+  const remoteLkpdRef = useRef<string>('');
   const remoteBroadcastsRef = useRef<string>('');
 
   // 1. Realtime Firestore synchronization for Site Settings (settings/site)
@@ -360,8 +392,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (Array.isArray(data) && data.length > 0) {
         remoteTeachersRef.current = JSON.stringify(data);
         setTeachers(data);
+        try {
+          localStorage.setItem('prabunet_teachers', JSON.stringify(data));
+        } catch {}
       }
-    });
+    }, undefined, INITIAL_TEACHERS);
     return () => unsub();
   }, []);
 
@@ -371,54 +406,158 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (Array.isArray(data) && data.length > 0) {
         remoteStudentsRef.current = JSON.stringify(data);
         setStudents(data);
+        try {
+          localStorage.setItem('prabunet_students', JSON.stringify(data));
+        } catch {}
       }
-    });
+    }, undefined, INITIAL_STUDENTS);
     return () => unsub();
   }, []);
 
-  // 4. Realtime Firestore synchronization for Schedules
+  // 4. Realtime Firestore synchronization for Subjects (Mata Pelajaran)
+  useEffect(() => {
+    const unsub = subscribeAppState('subjects', (data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        remoteSubjectsRef.current = JSON.stringify(data);
+        setSubjects(data);
+        try {
+          localStorage.setItem('prabunet_subjects', JSON.stringify(data));
+        } catch {}
+      }
+    }, undefined, INITIAL_SUBJECTS);
+    return () => unsub();
+  }, []);
+
+  // 5. Realtime Firestore synchronization for Subject Meetings of the active subject
+  useEffect(() => {
+    if (!selectedSubject?.id) return;
+    const unsub = subscribeSubjectMeetings(selectedSubject.id, (remoteMeetings) => {
+      if (Array.isArray(remoteMeetings) && remoteMeetings.length > 0) {
+        setSubjectMeetings((prev) => {
+          const next = { ...prev, [selectedSubject.id]: remoteMeetings };
+          try {
+            localStorage.setItem('prabunet_meetings', JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+      }
+    });
+    return () => unsub();
+  }, [selectedSubject?.id]);
+
+  // 6. Realtime Firestore synchronization for Schedules
   useEffect(() => {
     const unsub = subscribeAppState('schedules', (data) => {
       if (Array.isArray(data) && data.length > 0) {
         remoteSchedulesRef.current = JSON.stringify(data);
         setSchedules(data);
+        try {
+          localStorage.setItem('prabunet_schedules', JSON.stringify(data));
+        } catch {}
       }
-    });
+    }, undefined, INITIAL_SCHEDULES);
     return () => unsub();
   }, []);
 
-  // 5. Realtime Firestore synchronization for Exams
+  // 7. Realtime Firestore synchronization for Exams
   useEffect(() => {
     const unsub = subscribeAppState('exams', (data) => {
       if (Array.isArray(data) && data.length > 0) {
         remoteExamsRef.current = JSON.stringify(data);
         setExams(data);
+        try {
+          localStorage.setItem('prabunet_exams', JSON.stringify(data));
+        } catch {}
+      }
+    }, undefined, INITIAL_EXAMS);
+    return () => unsub();
+  }, []);
+
+  // 8. Realtime Firestore synchronization for Exam Attempts
+  useEffect(() => {
+    const unsub = subscribeAppState('exam_attempts', (data) => {
+      if (Array.isArray(data)) {
+        remoteExamAttemptsRef.current = JSON.stringify(data);
+        setExamAttempts(data);
+        try {
+          localStorage.setItem('prabunet_exam_attempts', JSON.stringify(data));
+        } catch {}
       }
     });
     return () => unsub();
   }, []);
 
-  // 6. Realtime Firestore synchronization for Broadcast Messages
+  // 9. Realtime Firestore synchronization for LKPD Submissions
+  useEffect(() => {
+    const unsub = subscribeAppState('lkpd_submissions', (data) => {
+      if (Array.isArray(data)) {
+        remoteLkpdRef.current = JSON.stringify(data);
+        setLkpdSubmissions(data);
+        try {
+          localStorage.setItem('prabunet_lkpd_submissions', JSON.stringify(data));
+        } catch {}
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 10. Realtime Firestore synchronization for Broadcast Messages
   useEffect(() => {
     const unsub = subscribeAppState('broadcasts', (data) => {
       if (Array.isArray(data)) {
         remoteBroadcastsRef.current = JSON.stringify(data);
         setBroadcasts(data);
+        try {
+          localStorage.setItem('prabunet_broadcasts', JSON.stringify(data));
+        } catch {}
       }
     });
     return () => unsub();
   }, []);
 
-  // 7. Realtime Firestore synchronization for CBT Unlock Token
+  // 11. Realtime Firestore synchronization for CBT Unlock Token
   useEffect(() => {
     const unsub = subscribeAppState('cbt_unlock_token', (token) => {
       if (typeof token === 'string' && token.trim().length > 0) {
         setCbtUnlockTokenState(token);
-        localStorage.setItem('prabunet_cbt_token', token);
+        try {
+          localStorage.setItem('prabunet_cbt_token', token);
+        } catch {}
       }
     });
     return () => unsub();
   }, []);
+
+  // 12. Realtime Firestore synchronization for Admin Custom Profile (Avatar / Name / Phone)
+  useEffect(() => {
+    const unsub = subscribeAppState('admin_profile', (data) => {
+      if (data && typeof data === 'object') {
+        setAdminCustomProfile(data);
+        try {
+          localStorage.setItem('prabunet_admin_profile', JSON.stringify(data));
+        } catch {}
+        // If current user is admin, update their avatar immediately
+        setCurrentUser((prev) => {
+          if (prev && prev.role === 'admin' && data.avatar && data.avatar !== prev.avatar) {
+            return { ...prev, avatar: data.avatar, name: data.name || prev.name, phone: data.phone || prev.phone };
+          }
+          return prev;
+        });
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 13. Sync current user's profile from Firestore when logged in
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const unsub = subscribeUserProfile(currentUser.id, (incoming) => {
+      if (incoming && incoming.avatar && incoming.avatar !== currentUser.avatar) {
+        setCurrentUser((prev) => (prev ? { ...prev, ...incoming } : prev));
+      }
+    });
+    return () => unsub();
+  }, [currentUser?.id]);
 
   // Local storage cache syncing & Firestore broadcast
   useEffect(() => {
@@ -516,12 +655,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (password === activeSecretPass && (!email || cleanEmail === '' || cleanEmail.includes('admin') || cleanEmail.includes('nishfa') || cleanEmail.includes('kepala'))) {
       const adminUser: User = {
         id: 'admin-headmaster',
-        name: ADMIN_CREDENTIALS.name,
+        name: adminCustomProfile.name || ADMIN_CREDENTIALS.name,
         email: ADMIN_CREDENTIALS.email,
         role: 'admin',
         title: ADMIN_CREDENTIALS.title,
-        avatar: ADMIN_CREDENTIALS.avatar,
-        phone: '0812-9876-5432',
+        avatar: adminCustomProfile.avatar || ADMIN_CREDENTIALS.avatar,
+        phone: adminCustomProfile.phone || '0812-9876-5432',
       };
 
       setCurrentUser(adminUser);
@@ -560,12 +699,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const adminUser: User = {
       id: 'admin-headmaster',
-      name: ADMIN_CREDENTIALS.name,
+      name: adminCustomProfile.name || ADMIN_CREDENTIALS.name,
       email: ADMIN_CREDENTIALS.email,
       role: 'admin',
       title: ADMIN_CREDENTIALS.title,
-      avatar: ADMIN_CREDENTIALS.avatar,
-      phone: '0812-9876-5432',
+      avatar: adminCustomProfile.avatar || ADMIN_CREDENTIALS.avatar,
+      phone: adminCustomProfile.phone || '0812-9876-5432',
     };
 
     setCurrentUser(adminUser);
@@ -724,7 +863,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       phone: studentData.phone || '-',
     };
 
-    setStudents((prev) => [newStudent, ...prev]);
+    const nextStudents = [newStudent, ...students];
+    setStudents(nextStudents);
+    try {
+      localStorage.setItem('prabunet_students', JSON.stringify(nextStudents));
+    } catch {}
+    saveAppStateToFirestore('students', nextStudents);
 
     // Note: We deliberately do NOT call setCurrentUser here because the student must be approved first!
     addNotification(
@@ -744,21 +888,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const approveStudent = (studentId: string) => {
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
     let targetName = '';
-    setStudents((prev) =>
-      prev.map((s) => {
-        if (s.id === studentId) {
-          targetName = s.name;
-          return {
-            ...s,
-            approvalStatus: 'approved',
-            approvedAt: nowStr,
-            approvedBy: ADMIN_CREDENTIALS.name,
-            rejectionReason: undefined,
-          };
-        }
-        return s;
-      })
-    );
+    const nextStudents = students.map((s) => {
+      if (s.id === studentId) {
+        targetName = s.name;
+        return {
+          ...s,
+          approvalStatus: 'approved' as const,
+          approvedAt: nowStr,
+          approvedBy: ADMIN_CREDENTIALS.name,
+          rejectionReason: undefined,
+        };
+      }
+      return s;
+    });
+    setStudents(nextStudents);
+    try {
+      localStorage.setItem('prabunet_students', JSON.stringify(nextStudents));
+    } catch {}
+    saveAppStateToFirestore('students', nextStudents);
+
     addNotification(
       'Siswa Berhasil Disetujui',
       `Akun siswa "${targetName || studentId}" telah disetujui oleh Bapak Kepala Sekolah. Siswa kini dapat masuk ke PRABUNET.`,
@@ -772,19 +920,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const rejectStudent = (studentId: string, reason = 'Data pendaftaran belum sesuai kriteria verifikasi.') => {
     let targetName = '';
-    setStudents((prev) =>
-      prev.map((s) => {
-        if (s.id === studentId) {
-          targetName = s.name;
-          return {
-            ...s,
-            approvalStatus: 'rejected',
-            rejectionReason: reason,
-          };
-        }
-        return s;
-      })
-    );
+    const nextStudents = students.map((s) => {
+      if (s.id === studentId) {
+        targetName = s.name;
+        return {
+          ...s,
+          approvalStatus: 'rejected' as const,
+          rejectionReason: reason,
+        };
+      }
+      return s;
+    });
+    setStudents(nextStudents);
+    try {
+      localStorage.setItem('prabunet_students', JSON.stringify(nextStudents));
+    } catch {}
+    saveAppStateToFirestore('students', nextStudents);
+
     addNotification(
       'Pendaftaran Siswa Ditolak',
       `Pendaftaran akun siswa "${targetName || studentId}" telah ditolak oleh Admin.`,
@@ -799,23 +951,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const approveAllPendingStudents = () => {
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
     let count = 0;
-    setStudents((prev) =>
-      prev.map((s) => {
-        if (s.approvalStatus === 'pending') {
-          count++;
-          return {
-            ...s,
-            approvalStatus: 'approved',
-            approvedAt: nowStr,
-            approvedBy: ADMIN_CREDENTIALS.name,
-            rejectionReason: undefined,
-          };
-        }
-        return s;
-      })
-    );
+    const nextStudents = students.map((s) => {
+      if (s.approvalStatus === 'pending') {
+        count++;
+        return {
+          ...s,
+          approvalStatus: 'approved' as const,
+          approvedAt: nowStr,
+          approvedBy: ADMIN_CREDENTIALS.name,
+          rejectionReason: undefined,
+        };
+      }
+      return s;
+    });
 
     if (count > 0) {
+      setStudents(nextStudents);
+      try {
+        localStorage.setItem('prabunet_students', JSON.stringify(nextStudents));
+      } catch {}
+      saveAppStateToFirestore('students', nextStudents);
+
       addNotification(
         'Semua Siswa Disetujui',
         `Sebanyak ${count} siswa baru yang pending berhasil disetujui serentak oleh Bapak Kepala Sekolah.`,
@@ -836,7 +992,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const deleteStudent = (studentId: string) => {
     const target = students.find((s) => s.id === studentId);
-    setStudents((prev) => prev.filter((s) => s.id !== studentId));
+    const nextStudents = students.filter((s) => s.id !== studentId);
+    setStudents(nextStudents);
+    try {
+      localStorage.setItem('prabunet_students', JSON.stringify(nextStudents));
+    } catch {}
+    saveAppStateToFirestore('students', nextStudents);
+
     addNotification(
       'Data Siswa Dihapus',
       `Data akun siswa "${target?.name || studentId}" telah dihapus oleh Admin.`,
@@ -846,9 +1008,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateStudent = (studentId: string, updated: Partial<User>) => {
-    setStudents((prev) =>
-      prev.map((s) => (s.id === studentId ? { ...s, ...updated } : s))
-    );
+    const nextStudents = students.map((s) => (s.id === studentId ? { ...s, ...updated } : s));
+    setStudents(nextStudents);
+    try {
+      localStorage.setItem('prabunet_students', JSON.stringify(nextStudents));
+    } catch {}
+    saveAppStateToFirestore('students', nextStudents);
+
     addNotification('Data Siswa Diperbarui', `Informasi siswa telah diperbarui oleh Admin.`, 'info');
     return { success: true, message: 'Data siswa berhasil diperbarui.' };
   };
@@ -865,22 +1031,40 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       no: teacher.no || nextNo,
       customPassword: teacher.customPassword || DEFAULT_TEACHER_PASSWORD,
     };
-    setTeachers((prev) => [...prev, newTeacherObj]);
+    const nextTeachers = [...teachers, newTeacherObj];
+    setTeachers(nextTeachers);
+    try {
+      localStorage.setItem('prabunet_teachers', JSON.stringify(nextTeachers));
+    } catch {}
+    saveAppStateToFirestore('teachers', nextTeachers);
+
     addNotification('Guru Baru Ditambahkan', `${newTeacherObj.name} berhasil didaftarkan ke Dewan Guru.`, 'info');
     return { success: true, message: `Guru ${newTeacherObj.name} berhasil ditambahkan.` };
   };
 
   const updateTeacher = (teacherEmail: string, updated: Partial<TeacherAccount>) => {
-    setTeachers((prev) =>
-      prev.map((t) => (t.email.toLowerCase() === teacherEmail.toLowerCase() ? { ...t, ...updated } : t))
+    const nextTeachers = teachers.map((t) =>
+      t.email.toLowerCase() === teacherEmail.toLowerCase() ? { ...t, ...updated } : t
     );
+    setTeachers(nextTeachers);
+    try {
+      localStorage.setItem('prabunet_teachers', JSON.stringify(nextTeachers));
+    } catch {}
+    saveAppStateToFirestore('teachers', nextTeachers);
+
     addNotification('Data Guru Diperbarui', `Informasi untuk guru ${teacherEmail} telah diperbarui.`, 'info');
     return { success: true, message: 'Data guru berhasil diperbarui.' };
   };
 
   const deleteTeacher = (teacherEmail: string) => {
     const target = teachers.find((t) => t.email.toLowerCase() === teacherEmail.toLowerCase());
-    setTeachers((prev) => prev.filter((t) => t.email.toLowerCase() !== teacherEmail.toLowerCase()));
+    const nextTeachers = teachers.filter((t) => t.email.toLowerCase() !== teacherEmail.toLowerCase());
+    setTeachers(nextTeachers);
+    try {
+      localStorage.setItem('prabunet_teachers', JSON.stringify(nextTeachers));
+    } catch {}
+    saveAppStateToFirestore('teachers', nextTeachers);
+
     addNotification('Guru Dihapus', `Data guru ${target?.name || teacherEmail} telah dihapus dari sistem.`, 'info');
     return { success: true, message: `Guru ${target?.name || teacherEmail} berhasil dihapus.` };
   };
@@ -889,26 +1073,58 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateUserProfile = (updated: Partial<User>) => {
     if (!currentUser) return { success: false, message: 'Sesi login tidak aktif.' };
 
-    const updatedUser = { ...currentUser, ...updated };
+    const updatedUser: User = { ...currentUser, ...updated };
     setCurrentUser(updatedUser);
+    try {
+      localStorage.setItem('prabunet_current_user', JSON.stringify(updatedUser));
+    } catch {}
 
-    // If teacher, update in teachers list too
-    if (currentUser.role === 'guru') {
-      setTeachers((prev) =>
-        prev.map((t) =>
-          t.email.toLowerCase() === currentUser.email.toLowerCase()
-            ? { ...t, avatar: updated.avatar || t.avatar, name: updated.name || t.name, phone: updated.phone || t.phone }
-            : t
-        )
+    // 1. Save directly to Firestore users collection
+    saveUserProfileToFirestore(updatedUser);
+
+    // 2. If admin, persist to admin profile in app_state
+    if (currentUser.role === 'admin') {
+      if (updated.avatar) {
+        setAdminCustomProfile((prev) => {
+          const nextProf = { ...prev, avatar: updated.avatar, name: updated.name || prev.name, phone: updated.phone || prev.phone };
+          try {
+            localStorage.setItem('prabunet_admin_profile', JSON.stringify(nextProf));
+          } catch {}
+          saveAppStateToFirestore('admin_profile', nextProf);
+          return nextProf;
+        });
+      } else {
+        saveAppStateToFirestore('admin_profile', updatedUser);
+      }
+    } else if (currentUser.role === 'guru') {
+      // If teacher, update in teachers list AND push to Firestore immediately
+      const nextTeachers = teachers.map((t) =>
+        t.email.toLowerCase() === currentUser.email.toLowerCase()
+          ? {
+              ...t,
+              avatar: updated.avatar !== undefined ? updated.avatar : t.avatar,
+              name: updated.name || t.name,
+              phone: updated.phone || t.phone,
+              title: updated.title || t.title,
+            }
+          : t
       );
+      setTeachers(nextTeachers);
+      try {
+        localStorage.setItem('prabunet_teachers', JSON.stringify(nextTeachers));
+      } catch {}
+      saveAppStateToFirestore('teachers', nextTeachers);
     } else if (currentUser.role === 'murid') {
-      setStudents((prev) =>
-        prev.map((s) => (s.id === currentUser.id ? { ...s, ...updated } : s))
-      );
+      const nextStudents = students.map((s) => (s.id === currentUser.id ? { ...s, ...updated } : s));
+      setStudents(nextStudents);
+      try {
+        localStorage.setItem('prabunet_students', JSON.stringify(nextStudents));
+      } catch {}
+      saveAppStateToFirestore('students', nextStudents);
     }
 
-    addNotification('Profil Diperbarui', 'Foto dan informasi profil Anda berhasil disimpan.', 'info');
-    return { success: true, message: 'Profil berhasil diperbarui!' };
+    addNotification('Profil Diperbarui', 'Foto profil dan informasi akun berhasil disimpan ke cloud Firebase.', 'info');
+    return { success: true, message: 'Foto dan profil berhasil tersimpan di Firebase!' };
   };
 
   // Logout
@@ -1010,6 +1226,60 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: 'Kata sandi akun berhasil diperbarui.' };
   };
 
+  // Subject Management
+  const addSubject = (newSubjData: Omit<Subject, 'id'>) => {
+    const newId = `subj-${Date.now()}`;
+    const newSubj: Subject = {
+      ...newSubjData,
+      id: newId,
+      totalMeetings: newSubjData.totalMeetings || 30,
+    };
+    const nextSubjects = [newSubj, ...subjects];
+    setSubjects(nextSubjects);
+    try {
+      localStorage.setItem('prabunet_subjects', JSON.stringify(nextSubjects));
+    } catch {}
+    saveAppStateToFirestore('subjects', nextSubjects);
+
+    // Also auto-generate 30 meetings and persist to Firestore
+    const meetings = generate30MeetingsForSubject(newSubj);
+    setSubjectMeetings((prev) => {
+      const nextMeetings = { ...prev, [newId]: meetings };
+      try {
+        localStorage.setItem('prabunet_meetings', JSON.stringify(nextMeetings));
+      } catch {}
+      saveSubjectMeetingsToFirestore(newId, meetings);
+      return nextMeetings;
+    });
+
+    addNotification('Mata Pelajaran Ditambahkan', `Mata pelajaran "${newSubj.name}" berhasil dibuat dan disimpan ke cloud.`, 'info');
+    return { success: true, message: `Mata pelajaran "${newSubj.name}" berhasil ditambahkan!`, subject: newSubj };
+  };
+
+  const updateSubject = (subjectId: string, updated: Partial<Subject>) => {
+    const nextSubjects = subjects.map((s) => (s.id === subjectId ? { ...s, ...updated } : s));
+    setSubjects(nextSubjects);
+    try {
+      localStorage.setItem('prabunet_subjects', JSON.stringify(nextSubjects));
+    } catch {}
+    saveAppStateToFirestore('subjects', nextSubjects);
+    addNotification('Mata Pelajaran Diperbarui', 'Perubahan mata pelajaran berhasil disimpan ke cloud.', 'info');
+    return { success: true, message: 'Mata pelajaran berhasil diperbarui!' };
+  };
+
+  const deleteSubject = (subjectId: string) => {
+    const target = subjects.find((s) => s.id === subjectId);
+    const nextSubjects = subjects.filter((s) => s.id !== subjectId);
+    setSubjects(nextSubjects);
+    try {
+      localStorage.setItem('prabunet_subjects', JSON.stringify(nextSubjects));
+    } catch {}
+    saveAppStateToFirestore('subjects', nextSubjects);
+    deleteSubjectMeetingsFromFirestore(subjectId);
+    addNotification('Mata Pelajaran Dihapus', `Mata pelajaran ${target?.name || subjectId} telah dihapus dari sistem.`, 'info');
+    return { success: true, message: 'Mata pelajaran berhasil dihapus.' };
+  };
+
   // Get or generate 30 meetings for subject
   const getMeetingsForSubject = (subjectId: string): MeetingModule[] => {
     if (subjectMeetings[subjectId] && subjectMeetings[subjectId].length === 30) {
@@ -1018,7 +1288,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const subj = subjects.find((s) => s.id === subjectId);
     if (!subj) return [];
     const generated = generate30MeetingsForSubject(subj);
-    setSubjectMeetings((prev) => ({ ...prev, [subjectId]: generated }));
+    setSubjectMeetings((prev) => {
+      const nextMeetings = { ...prev, [subjectId]: generated };
+      try {
+        localStorage.setItem('prabunet_meetings', JSON.stringify(nextMeetings));
+      } catch {}
+      saveSubjectMeetingsToFirestore(subjectId, generated);
+      return nextMeetings;
+    });
     return generated;
   };
 
@@ -1028,26 +1305,52 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const updatedList = currentList.map((m) =>
         m.meetingNumber === meetingNumber ? { ...m, ...updated } : m
       );
-      return { ...prev, [subjectId]: updatedList };
+      const nextMeetings = { ...prev, [subjectId]: updatedList };
+      try {
+        localStorage.setItem('prabunet_meetings', JSON.stringify(nextMeetings));
+      } catch {}
+      saveSubjectMeetingsToFirestore(subjectId, updatedList);
+      return nextMeetings;
     });
+    addNotification('Modul Materi Diperbarui', `Pertemuan ke-${meetingNumber} berhasil diperbarui di cloud.`, 'info');
   };
 
   // Exam Management
   const addExam = (exam: Exam) => {
-    setExams((prev) => [exam, ...prev]);
-    addNotification('Ujian Baru Dibuat', `Ujian "${exam.title}" untuk kelas ${exam.targetClasses ? exam.targetClasses.join(', ') : 'Semua'} telah dipublikasikan.`, 'exam');
+    const nextExams = [exam, ...exams];
+    setExams(nextExams);
+    try {
+      localStorage.setItem('prabunet_exams', JSON.stringify(nextExams));
+    } catch {}
+    saveAppStateToFirestore('exams', nextExams);
+    addNotification('Ujian Baru Dibuat', `Ujian "${exam.title}" untuk kelas ${exam.targetClasses ? exam.targetClasses.join(', ') : 'Semua'} telah dipublikasikan ke cloud.`, 'exam');
   };
 
   const updateExam = (examId: string, updated: Partial<Exam>) => {
-    setExams((prev) => prev.map((e) => (e.id === examId ? { ...e, ...updated } : e)));
+    const nextExams = exams.map((e) => (e.id === examId ? { ...e, ...updated } : e));
+    setExams(nextExams);
+    try {
+      localStorage.setItem('prabunet_exams', JSON.stringify(nextExams));
+    } catch {}
+    saveAppStateToFirestore('exams', nextExams);
   };
 
   const deleteExam = (examId: string) => {
-    setExams((prev) => prev.filter((e) => e.id !== examId));
+    const nextExams = exams.filter((e) => e.id !== examId);
+    setExams(nextExams);
+    try {
+      localStorage.setItem('prabunet_exams', JSON.stringify(nextExams));
+    } catch {}
+    saveAppStateToFirestore('exams', nextExams);
   };
 
   const submitExamAttempt = (attempt: ExamAttempt) => {
-    setExamAttempts((prev) => [attempt, ...prev.filter((a) => a.id !== attempt.id)]);
+    const nextAttempts = [attempt, ...examAttempts.filter((a) => a.id !== attempt.id)];
+    setExamAttempts(nextAttempts);
+    try {
+      localStorage.setItem('prabunet_exam_attempts', JSON.stringify(nextAttempts));
+    } catch {}
+    saveAppStateToFirestore('exam_attempts', nextAttempts);
     addNotification(
       'Ujian CBT Selesai',
       `Nilai untuk ${attempt.studentName} pada "${attempt.examTitle}": ${attempt.totalScore} / ${attempt.maxScore}`,
@@ -1056,42 +1359,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const gradeExamEssay = (attemptId: string, questionId: string, score: number, feedback?: string) => {
-    setExamAttempts((prev) =>
-      prev.map((att) => {
-        if (att.id !== attemptId) return att;
-        const currentAns = att.answers[questionId];
-        if (!currentAns) return att;
+    const nextAttempts = examAttempts.map((att) => {
+      if (att.id !== attemptId) return att;
+      const currentAns = att.answers[questionId];
+      if (!currentAns) return att;
 
-        const updatedAnswers = {
-          ...att.answers,
-          [questionId]: {
-            ...currentAns,
-            manualScore: score,
-            teacherFeedback: feedback || currentAns.teacherFeedback,
-          },
-        };
+      const updatedAnswers = {
+        ...att.answers,
+        [questionId]: {
+          ...currentAns,
+          manualScore: score,
+          teacherFeedback: feedback || currentAns.teacherFeedback,
+        },
+      };
 
-        let newEssayScore = 0;
-        (Object.values(updatedAnswers) as StudentAnswer[]).forEach((ans) => {
-          if (ans.manualScore !== undefined) {
-            newEssayScore += ans.manualScore;
-          }
-        });
+      let newEssayScore = 0;
+      (Object.values(updatedAnswers) as StudentAnswer[]).forEach((ans) => {
+        if (ans.manualScore !== undefined) {
+          newEssayScore += ans.manualScore;
+        }
+      });
 
-        const newTotal = att.pgScore + newEssayScore;
-        const percentage = Math.round((newTotal / att.maxScore) * 100);
+      const newTotal = att.pgScore + newEssayScore;
+      const percentage = Math.round((newTotal / att.maxScore) * 100);
 
-        return {
-          ...att,
-          answers: updatedAnswers,
-          essayScore: newEssayScore,
-          totalScore: newTotal,
-          percentage,
-          isPassed: percentage >= 75,
-          status: 'graded',
-        };
-      })
-    );
+      return {
+        ...att,
+        answers: updatedAnswers,
+        essayScore: newEssayScore,
+        totalScore: newTotal,
+        percentage,
+        isPassed: percentage >= 75,
+        status: 'graded' as const,
+      };
+    });
+    setExamAttempts(nextAttempts);
+    try {
+      localStorage.setItem('prabunet_exam_attempts', JSON.stringify(nextAttempts));
+    } catch {}
+    saveAppStateToFirestore('exam_attempts', nextAttempts);
   };
 
   // Master Grade editing for Admin / Kepala Sekolah & Guru Pengampu
@@ -1099,44 +1405,60 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     attemptId: string,
     updatedScores: { totalScore?: number; pgScore?: number; essayScore?: number; isPassed?: boolean; notes?: string }
   ) => {
-    setExamAttempts((prev) =>
-      prev.map((att) => {
-        if (att.id !== attemptId) return att;
-        const newTotal = updatedScores.totalScore !== undefined ? updatedScores.totalScore : att.totalScore;
-        const percentage = Math.round((newTotal / att.maxScore) * 100);
-        return {
-          ...att,
-          totalScore: newTotal,
-          pgScore: updatedScores.pgScore !== undefined ? updatedScores.pgScore : att.pgScore,
-          essayScore: updatedScores.essayScore !== undefined ? updatedScores.essayScore : att.essayScore,
-          isPassed: updatedScores.isPassed !== undefined ? updatedScores.isPassed : percentage >= 75,
-          percentage,
-          status: 'graded',
-        };
-      })
-    );
+    const nextAttempts = examAttempts.map((att) => {
+      if (att.id !== attemptId) return att;
+      const newTotal = updatedScores.totalScore !== undefined ? updatedScores.totalScore : att.totalScore;
+      const percentage = Math.round((newTotal / att.maxScore) * 100);
+      return {
+        ...att,
+        totalScore: newTotal,
+        pgScore: updatedScores.pgScore !== undefined ? updatedScores.pgScore : att.pgScore,
+        essayScore: updatedScores.essayScore !== undefined ? updatedScores.essayScore : att.essayScore,
+        isPassed: updatedScores.isPassed !== undefined ? updatedScores.isPassed : percentage >= 75,
+        percentage,
+        status: 'graded' as const,
+      };
+    });
+    setExamAttempts(nextAttempts);
+    try {
+      localStorage.setItem('prabunet_exam_attempts', JSON.stringify(nextAttempts));
+    } catch {}
+    saveAppStateToFirestore('exam_attempts', nextAttempts);
     addNotification('Nilai Diperbarui', 'Nilai siswa berhasil diubah dan disimpan.', 'grade');
   };
 
   // LKPD
   const submitLKPD = (submission: LKPDSubmission) => {
-    setLkpdSubmissions((prev) => [submission, ...prev.filter((s) => s.id !== submission.id)]);
+    const nextSubmissions = [submission, ...lkpdSubmissions.filter((s) => s.id !== submission.id)];
+    setLkpdSubmissions(nextSubmissions);
+    try {
+      localStorage.setItem('prabunet_lkpd_submissions', JSON.stringify(nextSubmissions));
+    } catch {}
+    saveAppStateToFirestore('lkpd_submissions', nextSubmissions);
     addNotification('LKPD Terkirim', `Tugas LKPD Pertemuan ${submission.meetingNumber} telah dikirim ke guru pengampu.`, 'assignment');
   };
 
   const gradeLKPD = (submissionId: string, score: number, feedback: string) => {
-    setLkpdSubmissions((prev) =>
-      prev.map((sub) =>
-        sub.id === submissionId
-          ? { ...sub, score, feedback, status: 'graded' }
-          : sub
-      )
+    const nextSubmissions = lkpdSubmissions.map((sub) =>
+      sub.id === submissionId
+        ? { ...sub, score, feedback, status: 'graded' as const }
+        : sub
     );
+    setLkpdSubmissions(nextSubmissions);
+    try {
+      localStorage.setItem('prabunet_lkpd_submissions', JSON.stringify(nextSubmissions));
+    } catch {}
+    saveAppStateToFirestore('lkpd_submissions', nextSubmissions);
   };
 
   // Schedule
   const addScheduleItem = (schedule: ScheduleItem) => {
-    setSchedules((prev) => [...prev, schedule]);
+    const nextSchedules = [...schedules, schedule];
+    setSchedules(nextSchedules);
+    try {
+      localStorage.setItem('prabunet_schedules', JSON.stringify(nextSchedules));
+    } catch {}
+    saveAppStateToFirestore('schedules', nextSchedules);
   };
 
   const addSchedule = (schedule: ScheduleItem) => {
@@ -1144,13 +1466,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateScheduleItem = (scheduleId: string, updated: Partial<ScheduleItem>) => {
-    setSchedules((prev) =>
-      prev.map((item) => (item.id === scheduleId ? { ...item, ...updated } : item))
-    );
+    const nextSchedules = schedules.map((item) => (item.id === scheduleId ? { ...item, ...updated } : item));
+    setSchedules(nextSchedules);
+    try {
+      localStorage.setItem('prabunet_schedules', JSON.stringify(nextSchedules));
+    } catch {}
+    saveAppStateToFirestore('schedules', nextSchedules);
   };
 
   const deleteScheduleItem = (scheduleId: string) => {
-    setSchedules((prev) => prev.filter((s) => s.id !== scheduleId));
+    const nextSchedules = schedules.filter((item) => item.id !== scheduleId);
+    setSchedules(nextSchedules);
+    try {
+      localStorage.setItem('prabunet_schedules', JSON.stringify(nextSchedules));
+    } catch {}
+    saveAppStateToFirestore('schedules', nextSchedules);
   };
 
   // Notifications
@@ -1226,6 +1556,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addTeacher,
         updateTeacher,
         deleteTeacher,
+        addSubject,
+        updateSubject,
+        deleteSubject,
         getMeetingsForSubject,
         updateMeetingModule,
         addExam,

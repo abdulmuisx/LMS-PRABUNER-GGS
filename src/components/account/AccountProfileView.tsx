@@ -24,6 +24,7 @@ import {
 import { ChangePasswordModal } from '../auth/ChangePasswordModal';
 import { AuthModal } from '../auth/AuthModal';
 import { AdminDashboard } from '../admin/AdminDashboard';
+import { compressImageFile } from '../../lib/imageCompressor';
 
 export const AccountProfileView: React.FC = () => {
   const {
@@ -53,16 +54,22 @@ export const AccountProfileView: React.FC = () => {
     'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&fit=crop&crop=faces',
   ];
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setAvatarPreview(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageFile(file, { maxWidth: 280, maxHeight: 280, quality: 0.82 });
+        setAvatarPreview(compressed);
+      } catch (err) {
+        console.warn('Gagal kompresi foto:', err);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setAvatarPreview(reader.result);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
